@@ -1,9 +1,20 @@
-# fmsg-mcp-claude
+# CLAUDE fmsg MCP 
+
+<img align="right" src="img/icon.png" alt="fmsg falcon" width="340">
 
 Share your Claude session with anyone as an [fmsg](https://github.com/markmnl/fmsg)
 thread — and open any fmsg thread in Claude with the full conversation as
 context. Shares are plain Markdown messages: readable in any fmsg client,
 usable by any agent.
+
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
 
 ## 1. Get an fmsg address + API key
 
