@@ -161,7 +161,7 @@ type serializedTurn struct {
 
 type shareArgs struct {
 	Recipients    []string         `json:"recipients" jsonschema:"recipient fmsg addresses (@user@example.com) or short names to resolve; list every address the thread should reach"`
-	Title         string           `json:"title,omitempty" jsonschema:"thread topic; on a root share becomes the immutable fmsg topic"`
+	Title         string           `json:"title,omitempty" jsonschema:"thread topic; defaults to the session's own summary. On a root share this becomes the immutable fmsg topic"`
 	Note          string           `json:"note,omitempty" jsonschema:"optional Markdown intro rendered above the transcript"`
 	ReplyToFmsgID int64            `json:"reply_to_fmsg_id,omitempty" jsonschema:"share as a reply into an existing thread instead of starting a new one"`
 	SessionID     string           `json:"session_id,omitempty" jsonschema:"Claude Code session id, if known, to disambiguate parallel sessions"`
@@ -420,6 +420,11 @@ func (s *server) buildTranscript(args shareArgs, who *identity.Whoami) (*session
 	tr.Model = pt.Model
 	tr.Turns = pt.Turns
 	if tr.Title == "" {
+		// Prefer Claude Code's own session summary (what its session picker
+		// shows); fall back to the first prompt's opening words.
+		tr.Title = clipTitle(pt.Summary)
+	}
+	if tr.Title == "" {
 		tr.Title = deriveTitle(pt.Turns)
 	}
 	if args.Note != "" {
@@ -436,18 +441,25 @@ func deriveTitle(turns []session.Turn) string {
 		}
 		for _, b := range t.Blocks {
 			if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
-				title := strings.TrimSpace(b.Text)
-				if i := strings.IndexByte(title, '\n'); i > 0 {
-					title = title[:i]
+				if title := clipTitle(b.Text); title != "" {
+					return title
 				}
-				if len(title) > 80 {
-					title = title[:80] + "…"
-				}
-				return title
 			}
 		}
 	}
 	return "Claude session"
+}
+
+// clipTitle reduces s to a single ≤80-char line suitable as an fmsg topic.
+func clipTitle(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i > 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	if len(s) > 80 {
+		s = s[:80] + "…"
+	}
+	return s
 }
 
 // ---------------------------------------------------------------- resume

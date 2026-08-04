@@ -17,6 +17,7 @@ type jsonlLine struct {
 	SessionID string `json:"sessionId"`
 	CWD       string `json:"cwd"`
 	GitBranch string `json:"gitBranch"`
+	Summary   string `json:"summary"` // harness-generated session summary on type=="summary" lines
 	Message   *struct {
 		Role    string          `json:"role"`
 		Model   string          `json:"model"`
@@ -65,6 +66,10 @@ type ParsedTranscript struct {
 	CWD       string
 	GitBranch string
 	Model     string
+	// Summary is Claude Code's own generated session summary (the text its
+	// session picker shows) — the preferred default share topic. Last one in
+	// the file wins. Empty for sessions not yet summarized.
+	Summary string
 }
 
 // ParseJSONL reads a Claude Code session transcript. Thinking blocks are
@@ -97,6 +102,9 @@ func ParseJSONL(path string) (*ParsedTranscript, error) {
 		}
 		if line.GitBranch != "" && pt.GitBranch == "" {
 			pt.GitBranch = line.GitBranch
+		}
+		if line.Type == "summary" && strings.TrimSpace(line.Summary) != "" {
+			pt.Summary = strings.TrimSpace(line.Summary)
 		}
 		if line.Message == nil || line.IsMeta || (line.Type != "user" && line.Type != "assistant") {
 			continue

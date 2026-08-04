@@ -35,6 +35,9 @@ func TestParseJSONL(t *testing.T) {
 	if pt.SessionID != "abc-123" || pt.CWD != "/home/alice/proj" || pt.Model != "claude-fable-5" {
 		t.Fatalf("metadata: %+v", pt)
 	}
+	if pt.Summary != "Fixing auth" {
+		t.Fatalf("summary: got %q want %q", pt.Summary, "Fixing auth")
+	}
 	if len(pt.Turns) != 3 {
 		t.Fatalf("turns: got %d want 3", len(pt.Turns))
 	}
