@@ -23,6 +23,7 @@ import (
 	"github.com/markmnl/fmsg-mcp-claude/internal/identity"
 	"github.com/markmnl/fmsg-mcp-claude/internal/locator"
 	"github.com/markmnl/fmsg-mcp-claude/internal/session"
+	"github.com/markmnl/fmsg-mcp-claude/internal/sharestate"
 	"github.com/markmnl/fmsg-mcp-claude/internal/thread"
 )
 
@@ -36,6 +37,14 @@ type pendingShare struct {
 	recipients []string
 	replyTo    int64
 	created    time.Time
+
+	// Incremental-share bookkeeping (sharestate): which session this is,
+	// hashes of every exchange in it, how many were already shared, and the
+	// existing thread root when continuing.
+	sessionID  string
+	allHashes  []string
+	baseCount  int
+	threadRoot int64
 }
 
 type server struct {
@@ -62,7 +71,8 @@ func main() {
 		Description: "Share the current Claude session as an fmsg message (Markdown transcript) to the recipient " +
 			"addresses given. Two-phase: the first call returns a preview (recipients, size, redactions) and a " +
 			"confirm_token; show the user the preview, ask simply \"Are you sure?\", and only after they say yes " +
-			"call again with confirm_token.",
+			"call again with confirm_token. Re-sharing a session already shared to the same recipients sends only " +
+			"the new exchanges, chained onto the existing thread — no need to track message ids yourself.",
 	}, s.shareSession)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -209,8 +219,42 @@ func (s *server) sharePreview(ctx context.Context, args shareArgs) (*mcp.CallToo
 	}
 	hits := session.Redact(tr.Turns)
 	bodies := session.RenderExchanges(tr)
+
+	// Incremental share: when this session was already shared to the same
+	// audience and its content still extends what was sent, chain only the
+	// new exchanges onto the existing thread instead of resending everything.
+	mode := "new_thread"
+	sendBodies := bodies
+	allHashes := sharestate.HashBodies(bodies)
+	baseCount := 0
+	replyTo := args.ReplyToFmsgID
+	var threadRoot int64
+	if replyTo == 0 && tr.SessionID != "" {
+		if st, serr := sharestate.Load(tr.SessionID); serr == nil && st != nil {
+			delta, extends := sharestate.Delta(st.ExchangeHashes, bodies)
+			switch {
+			case !extends:
+				mode = "new_thread_session_diverged"
+			case !sharestate.SameRecipients(st.Recipients, recipients):
+				mode = "new_thread_different_audience"
+			case len(delta) == 0:
+				return jsonResult(map[string]any{
+					"status": "nothing_new",
+					"note": fmt.Sprintf("every exchange in this session is already in the fmsg thread rooted at message %d (last message %d); nothing to send",
+						st.ThreadRoot, st.LastFmsgID),
+				})
+			default:
+				mode = "continue_shared_thread"
+				sendBodies = delta
+				baseCount = len(st.ExchangeHashes)
+				replyTo = st.LastFmsgID
+				threadRoot = st.ThreadRoot
+			}
+		}
+	}
+
 	total, largest := 0, 0
-	for _, b := range bodies {
+	for _, b := range sendBodies {
 		total += len(b)
 		if len(b) > largest {
 			largest = len(b)
@@ -225,25 +269,34 @@ func (s *server) sharePreview(ctx context.Context, args shareArgs) (*mcp.CallToo
 		}
 	}
 	s.pending[token] = &pendingShare{
-		bodies: bodies, title: tr.Title, recipients: recipients,
-		replyTo: args.ReplyToFmsgID, created: time.Now(),
+		bodies: sendBodies, title: tr.Title, recipients: recipients,
+		replyTo: replyTo, created: time.Now(),
+		sessionID: tr.SessionID, allHashes: allHashes,
+		baseCount: baseCount, threadRoot: threadRoot,
 	}
 	s.mu.Unlock()
 
-	return jsonResult(map[string]any{
+	preview := map[string]any{
 		"status":        "needs_confirmation",
+		"mode":          mode,
 		"from":          who.Address,
 		"recipients":    resolutions,
 		"fidelity":      tr.Fidelity,
 		"title":         tr.Title,
 		"turns":         len(tr.Turns),
-		"messages":      len(bodies),
+		"messages":      len(sendBodies),
 		"total_bytes":   total,
 		"largest_bytes": largest,
 		"redactions":    hits,
 		"confirm":       "Present this preview to the user as a short multi-line list (from, recipients, title, turns/messages, size, any redactions) — then on its own line ask exactly: \"Are you sure?\" No extra warnings. Re-invoke with confirm_token only after they say yes.",
 		"confirm_token": token,
-	})
+	}
+	if mode == "continue_shared_thread" {
+		preview["already_shared"] = baseCount
+		preview["continuing_thread_root"] = threadRoot
+		preview["note"] = fmt.Sprintf("only the %d new message(s) will be sent, chained onto the thread already shared (root %d)", len(sendBodies), threadRoot)
+	}
+	return jsonResult(preview)
 }
 
 func (s *server) shareConfirm(ctx context.Context, token string) (*mcp.CallToolResult, any, error) {
@@ -289,6 +342,7 @@ func (s *server) shareConfirm(ctx context.Context, token string) (*mcp.CallToolR
 		}
 		sent = append(sent, id)
 		prev = id
+		s.saveShareState(p, sent)
 		// Receiving hosts reject a reply whose parent they have not stored
 		// yet (fmsg code 6), and federation delivery is concurrent — so wait
 		// for this message to reach a terminal delivery state on every
@@ -302,12 +356,16 @@ func (s *server) shareConfirm(ctx context.Context, token string) (*mcp.CallToolR
 		}
 	}
 
+	note := fmt.Sprintf("one message per prompt, pid-chained; recipients can branch from or resume up to any of them (continue_thread %d for the whole session)", sent[len(sent)-1])
+	if p.threadRoot != 0 {
+		note = fmt.Sprintf("continued the previously shared thread (root %d): only the %d new message(s) were sent; sharing again later will keep extending this thread", p.threadRoot, len(sent))
+	}
 	result := map[string]any{
 		"status":      "sent",
 		"fmsg_ids":    sent,
 		"thread_head": sent[len(sent)-1],
 		"recipients":  p.recipients,
-		"note":        fmt.Sprintf("one message per prompt, pid-chained; recipients can branch from or resume up to any of them (continue_thread %d for the whole session)", sent[len(sent)-1]),
+		"note":        note,
 	}
 	// Delivery snapshot of the chain head: local recipients resolve
 	// immediately; federation fills in later (delivery_status re-checks).
@@ -315,6 +373,31 @@ func (s *server) shareConfirm(ctx context.Context, token string) (*mcp.CallToolR
 		result["delivery"] = delivery
 	}
 	return jsonResult(result)
+}
+
+// saveShareState records how far this session's shared thread has got, so a
+// later share of the same session continues the thread with only the new
+// exchanges. Called after every successful send: a mid-chain failure still
+// leaves the state at the last message that went out, and the next share
+// picks up from there. Best-effort — a state write failure never fails a send.
+func (s *server) saveShareState(p *pendingShare, sent []int64) {
+	if p.sessionID == "" || len(sent) == 0 {
+		return
+	}
+	root := p.threadRoot
+	if root == 0 {
+		root = sent[0]
+	}
+	st := &sharestate.State{
+		SessionID:      p.sessionID,
+		ThreadRoot:     root,
+		LastFmsgID:     sent[len(sent)-1],
+		Recipients:     p.recipients,
+		ExchangeHashes: p.allHashes[:p.baseCount+len(sent)],
+	}
+	if err := sharestate.Save(st); err != nil {
+		log.Printf("fmsg-mcp: share state not saved (next share will resend the whole session): %v", err)
+	}
 }
 
 // waitDelivered polls a sent message until every recipient has a terminal

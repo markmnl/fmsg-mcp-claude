@@ -77,7 +77,7 @@ because context is returned by the tools themselves.)
 
 Just ask Claude, in any session:
 
-- *"Share this session with @kebbie@fmsg.io"* — you'll get a preview
+- *"Share this session with `@kebbie@fmsg.io`"* — you'll get a preview
   (recipients, size, redactions) and nothing is sent until you approve.
 - *"Continue my latest fmsg thread"* — Claude loads the whole thread as
   context and picks up where it left off.
@@ -94,6 +94,13 @@ read it in any fmsg client, branch from any point, or load it into Claude or
 any other agent. Secrets (API keys, tokens, private keys) are redacted before
 sending. Sent messages are immutable — they can't be edited or recalled — so
 every share shows you a preview and asks before anything goes out.
+
+**Share again as you go:** keep working after a share, share again, and only
+the new exchanges are sent — chained onto the thread you already shared, so
+long sessions never get resent from the top. This happens automatically when
+the recipients are the same; a different audience (or a session whose earlier
+content changed) starts a fresh full thread, so nobody receives a tail whose
+beginning they can't read.
 
 ## Configuration
 

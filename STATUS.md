@@ -58,6 +58,18 @@ the global `--json` flag (also surfaces previously-dropped
 7. Harness meta content (`isMeta` lines, `<local-command-caveat>`,
    `<command-name>`, `<system-reminder>`) is **excluded from transcripts**;
    thinking blocks always excluded.
+8. **Incremental re-share (2026-08-05, user-requested):** sharing a session
+   again sends only the exchanges added since the last share, pid-chained
+   onto the already-shared thread. `internal/sharestate` persists per-session
+   progress (`~/.claude/fmsg-mcp/shares/<session-id>.json`: thread root, last
+   fmsg id, per-exchange hashes, recipients); the preview verifies the
+   current session still hash-extends what was sent. Continuation requires
+   the **exact same recipient set** — a widened audience can't read (and
+   their host doesn't hold) the earlier messages, a narrowed one forks the
+   bookkeeping — and a diverged/edited session likewise falls back to a full
+   new thread. State saves after *every* sent message, so a mid-chain
+   failure resumes from the last delivered message on the next share.
+   Explicit `reply_to_fmsg_id` bypasses the state entirely.
 
 ## Live-testing findings (fmsg.live / fmsg.io, 2026-08-04)
 
