@@ -45,10 +45,11 @@ the global `--json` flag (also surfaces previously-dropped
 4. **Default topic = Claude Code's own session summary** (the `summary`
    lines in the transcript JSONL), falling back to the first prompt's
    opening words.
-5. **Two-phase confirm and secret redaction are non-negotiable** because
-   sending is final. Precise phrasing matters: messages are immutable and
-   cannot be *edited or recalled*; each recipient's host keeps its own copy.
-   Do NOT say "cannot be deleted" (hosts may delete from their own stores —
+5. **Two-phase confirm and secret redaction are non-negotiable**, but the
+   user-facing framing is a simple "are you sure you want to send?" — the
+   immutability fact is background, not a scare line. Precise phrasing when
+   it comes up: messages are immutable, cannot be *edited or recalled*; do
+   NOT say "cannot be deleted" (hosts may delete from their own stores —
    replies to deleted messages are then rejected, so the thread restarts or
    someone who still has them resends; resend tooling not built yet) and do
    NOT say "cannot be unsent" (models garble it into "unsendable").

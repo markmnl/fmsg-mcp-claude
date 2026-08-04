@@ -61,8 +61,8 @@ func main() {
 		Name: "share_session",
 		Description: "Share the current Claude session as an fmsg message (Markdown transcript) to the recipient " +
 			"addresses given. Two-phase: the first call returns a preview (recipients, size, redactions) and a " +
-			"confirm_token; present the preview to the user and, on their approval, call again with confirm_token " +
-			"to send. Sending is final: fmsg messages are immutable — they cannot be edited or recalled, and each recipient's host keeps its own copy.",
+			"confirm_token; show the user the preview, ask if they are sure they want to send, and only then " +
+			"call again with confirm_token. (Sent messages are immutable, so there is no undo.)",
 	}, s.shareSession)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -241,7 +241,7 @@ func (s *server) sharePreview(ctx context.Context, args shareArgs) (*mcp.CallToo
 		"total_bytes":   total,
 		"largest_bytes": largest,
 		"redactions":    hits,
-		"warning":       "This sends one pid-chained fmsg message per user prompt. Sending is final: messages are immutable and cannot be edited or recalled — each recipient's host keeps its own copy. Present this preview to the user and only re-invoke with confirm_token after their explicit approval.",
+		"confirm":       "Show this preview to the user and ask: are you sure you want to send? Only re-invoke with confirm_token after they say yes. (This sends one message per prompt, pid-chained; sent messages are immutable, so there is no undo.)",
 		"confirm_token": token,
 	})
 }
@@ -705,8 +705,8 @@ func addPrompts(srv *mcp.Server) {
 		},
 	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		recipients := req.Params.Arguments["recipients"]
-		text := fmt.Sprintf("Share this session with %q via fmsg: call the share_session tool, present its preview to me "+
-			"(recipients, turn count, size, redactions, and the sending-is-final warning), and only after I approve, "+
+		text := fmt.Sprintf("Share this session with %q via fmsg: call the share_session tool, show me its preview "+
+			"(recipients, turn count, size, redactions), ask me if I'm sure I want to send, and only after I say yes "+
 			"call share_session again with the confirm_token.", recipients)
 		return &mcp.GetPromptResult{Messages: []*mcp.PromptMessage{
 			{Role: "user", Content: &mcp.TextContent{Text: text}},

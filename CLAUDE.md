@@ -29,10 +29,11 @@ gofmt -l . && go vet ./...
   the webapi PUT is full-replacement (upstream bug, OPEN_QUESTIONS #15).
 - CLI argv: `--json` first; flags before any negative message index; message
   bodies passed as temp-file paths, never inline text.
-- Sending is final: never bypass the two-phase preview/confirm or the
-  redaction pass. Phrase immutability as "cannot be edited or recalled" —
-  not "cannot be deleted" (hosts may delete from their own stores) and not
-  "cannot be unsent" (models garble it into "unsendable").
+- Never bypass the two-phase preview/confirm or the redaction pass. Keep the
+  user-facing framing to a simple "are you sure you want to send?" — the
+  immutability fact ("cannot be edited or recalled") is background, not a
+  scare line. Avoid "cannot be deleted" (hosts may delete from their own
+  stores) and "cannot be unsent" (models garble it into "unsendable").
 - Transcript parsing must stay tolerant (assumption A3): skip unknown JSONL
   line/block types; always exclude thinking blocks and harness meta content.
 
