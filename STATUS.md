@@ -74,17 +74,19 @@ the global `--json` flag (also surfaces previously-dropped
   cross-host **resume may now work** (unverified — see next steps).
 - `whoami` with env-key auth needed the CLI's new `whoami` (the address
   lives in the exchanged JWT).
-- **Cross-host pid chains delivered out of order** (2026-08-05): fmsgd sends
-  concurrently, receiving hosts reject children whose parent isn't stored
-  yet (code 6, no retry) → remote recipients got only the chain's root.
-  Upstream issue #18; the server now waits for each message's terminal
-  delivery state before sending its child. Agreed host-side design: fmsgd's
-  dispatch query holds a child for domain X until its parent is delivered
-  there; webapi synchronously rejects replies to domains the parent never
-  reached — the webapi half is implemented (fmsg-webapi branch
-  `verify-reply-deliverable`, 409 on send with the add-to/new-thread
-  remedy); the fmsgd sequencing half remains. The MCP pacing workaround
-  dies when the fmsgd fix lands.
+- **Cross-host replies to own sent messages bounced code 6** (2026-08-05).
+  First theory (delivery ordering race) was wrong — pacing didn't fix it.
+  Real root cause: fmsgd's sender hashed the pre-deflate header form while
+  receivers hash the transmitted (deflated) form, so the recorded parent
+  hash never matched and every chained reply missed. Fixed on fmsgd branch
+  `fix-shared-hash-deflated-form` + new fmsg-docker integration test
+  `007-reply-to-own-sent.sh` (the suite only ever replied to *received*
+  messages, hiding this). Messages sent pre-fix have the wrong hash
+  recorded forever — start new threads after deploying fmsgd. Related,
+  still useful: webapi's synchronous reject of replies to domains the
+  parent never reached (branch `verify-reply-deliverable`); fmsgd
+  parent-before-child dispatch sequencing remains open (#18a); the MCP's
+  60s chain pacing can relax once that lands.
 
 ## Remaining work, in priority order
 

@@ -135,18 +135,23 @@ Same-host MVP is unaffected (webapi 10/10/20 MB budget; shared row IDs).
     has).
 17. **`POST /fmsg/:id/send` accepts a draft with zero recipients** — the
     recipientless messages from #15 sent without any validation error.
-18. **fmsgd federation delivers a pid chain out of order (found live,
-    2026-08-05):** messages sent in quick succession are delivered
-    concurrently, so a reply can reach the receiving host before its parent
-    is stored — the host correctly rejects it with code 6 (parent not found)
-    and fmsgd does not retry, so cross-host recipients receive only the root
-    of a chain. **Agreed design (2026-08-05):** the host owns this, split in
-    two — (a) fmsgd's dispatch query sequences the merely-pending: don't
-    select a message's recipient rows for domain X while its parent still
-    has undelivered rows for domain X (cheap WHERE clause; webapi and fmsgd
-    share the store), keeping send instant for clients; (b) fmsg-webapi
-    rejects the impossible synchronously at send: a reply addressed to a
-    domain the parent was never delivered to (or where it permanently
-    failed) can never be accepted there — return an immediate error so the
-    client can add-to/resend instead. Once (a) lands, fmsg-mcp's 60s
-    chain-pacing workaround should be deleted.
+18. **Cross-host replies to own sent messages always bounced with code 6
+    (found live 2026-08-05; root cause identified same day):** initially
+    diagnosed as concurrent out-of-order delivery, but pacing sends on
+    confirmed parent delivery did not fix it. The real bug: **fmsgd's
+    sender computed the shared sha256 over the pre-deflate header form**,
+    while receiving hosts hash the header exactly as transmitted (deflated)
+    per SPEC — so the sender-recorded parent hash never matched the
+    receiver's stored hash and every reply's psha256 missed (code 6).
+    **Fixed** on fmsgd branch `fix-shared-hash-deflated-form` (deflate
+    before hashing; unit regression test) with new integration coverage in
+    fmsg-docker `007-reply-to-own-sent.sh` (test 002 replies to a
+    *received* message, whose stored hash is always the transmitted form —
+    the gap that hid this). Note: messages sent before the fix carry the
+    wrong recorded hash permanently; replies to them will still bounce —
+    start new threads after deploying. The layered ordering design remains
+    worthwhile: (a) fmsgd dispatch sequencing (parent-before-child per
+    domain) for genuine races; (b) fmsg-webapi's synchronous rejection of
+    replies to domains the parent never reached (implemented, branch
+    `verify-reply-deliverable`). fmsg-mcp's 60s chain pacing can be relaxed
+    once (a) lands.
