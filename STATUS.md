@@ -98,7 +98,9 @@ the global `--json` flag (also surfaces previously-dropped
   still useful: webapi's synchronous reject of replies to domains the
   parent never reached (branch `verify-reply-deliverable`); fmsgd
   parent-before-child dispatch sequencing remains open (#18a); the MCP's
-  60s chain pacing can relax once that lands.
+  60s chain pacing can relax once that lands. **Both fixes deployed to
+  fmsg.io and fmsg.live 2026-08-05** — cross-host chains unverified since;
+  remember replies to pre-fix messages still bounce, test on new threads.
 
 ## Remaining work, in priority order
 
