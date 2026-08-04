@@ -1,0 +1,83 @@
+name: release
+
+# On a published release: build fmsg-mcp (and the fmsg CLI it drives) for every
+# supported platform, package Claude Desktop extension bundles (.mcpb) for the
+# platforms Desktop supports, and attach everything to the release.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to (re)build assets for"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  # fmsg-cli ref to bundle; must include the --json and whoami commands.
+  FMSG_CLI_REF: main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Resolve tag and version
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Clone fmsg-cli
+        run: git clone --depth 1 --branch "$FMSG_CLI_REF" https://github.com/markmnl/fmsg-cli /tmp/fmsg-cli
+
+      - name: Build binaries
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for p in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            goos="${p%/*}" goarch="${p#*/}" ext=""
+            [ "$goos" = windows ] && ext=".exe"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath -ldflags "-s -w" -o "dist/fmsg-mcp_${goos}_${goarch}${ext}" .
+            (cd /tmp/fmsg-cli && CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath -ldflags "-s -w" -o "$GITHUB_WORKSPACE/dist/fmsg_${goos}_${goarch}${ext}" .)
+          done
+          ls -l dist
+
+      - name: Assemble Claude Desktop bundles (.mcpb)
+        run: |
+          set -euo pipefail
+          # platform label : goos : goarch : exe suffix
+          for spec in "darwin-arm64:darwin:arm64:" "darwin-x64:darwin:amd64:" "windows-x64:windows:amd64:.exe"; do
+            label="${spec%%:*}"; rest="${spec#*:}"
+            goos="${rest%%:*}"; rest="${rest#*:}"
+            goarch="${rest%%:*}"; ext="${rest#*:}"
+            plat="darwin"; [ "$goos" = windows ] && plat="win32"
+
+            work="bundle/$label"
+            mkdir -p "$work/server"
+            cp "dist/fmsg-mcp_${goos}_${goarch}${ext}" "$work/server/fmsg-mcp${ext}"
+            cp "dist/fmsg_${goos}_${goarch}${ext}"     "$work/server/fmsg${ext}"
+            chmod +x "$work/server/"*
+
+            sed -e "s/__VERSION__/${VERSION}/g" \
+                -e "s/__EXT__/${ext}/g" \
+                -e "s/__PLATFORM__/${plat}/g" \
+                .github/mcpb-manifest.template.json > "$work/manifest.json"
+
+            (cd "$work" && zip -qr "$GITHUB_WORKSPACE/dist/fmsg-${label}.mcpb" .)
+          done
+          ls -l dist/*.mcpb
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist/* --clobber

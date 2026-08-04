@@ -5,6 +5,45 @@ threads: share a working Claude session with a teammate as an fmsg message
 (readable in any fmsg client), and resume a Claude session seeded with the
 ancestor history of any fmsg thread message.
 
+## Quick start
+
+**You need an fmsg address and an API key** (`fmsgk_…`) on an fmsg host. No
+host? Create a free account at **[fmsg.io](https://fmsg.io)** and generate an
+API key under your account.
+
+**Claude Desktop (macOS / Windows)**
+
+1. Download the `.mcpb` bundle for your platform from the
+   [latest release](https://github.com/markmnl/fmsg-mcp-claude/releases/latest)
+   (`fmsg-darwin-arm64.mcpb`, `fmsg-darwin-x64.mcpb`, or `fmsg-windows-x64.mcpb`).
+2. Open it with Claude Desktop (double-click, or Settings → Extensions →
+   Install Extension…) and paste your fmsg Web API URL and API key when
+   prompted.
+3. Done — ask Claude to *"share this session with @friend@example.com via
+   fmsg"* or *"continue my latest fmsg thread"*.
+
+**Claude Code (Linux / macOS / Windows)**
+
+1. Download `fmsg-mcp_<os>_<arch>` and `fmsg_<os>_<arch>` from the
+   [latest release](https://github.com/markmnl/fmsg-mcp-claude/releases/latest)
+   and make them executable (e.g. into `~/bin`).
+2. Register the server:
+   ```sh
+   claude mcp add fmsg \
+     --env FMSG_API_URL=<your fmsg Web API URL> \
+     --env FMSG_API_KEY=fmsgk_... \
+     --env FMSG_CLI=~/bin/fmsg \
+     -- ~/bin/fmsg-mcp
+   ```
+3. Optional but recommended: install the [SessionStart hook](#install) so
+   shares capture your session verbatim. Then `/mcp__fmsg__share_session` and
+   `/mcp__fmsg__continue_thread` are available in any session.
+
+Sharing sends one Markdown fmsg message per prompt, pid-chained — recipients
+read it in any fmsg client, or load the thread into Claude (or any other
+agent) as context. Sending is permanent: fmsg messages cannot be recalled,
+edited, or deleted.
+
 Design documents: [ARCHITECTURE.md](./ARCHITECTURE.md) ·
 [TOOLS.md](./TOOLS.md) · [UX_FLOWS.md](./UX_FLOWS.md) ·
 [INTERFACES.md](./INTERFACES.md) · [OPEN_QUESTIONS.md](./OPEN_QUESTIONS.md) ·
