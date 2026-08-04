@@ -7,10 +7,10 @@ thread — and open any fmsg thread in Claude with the full conversation as
 context. Shares are plain Markdown messages: readable in any fmsg client,
 usable by any agent.
 
-< br />
-< br />
-< br />
-< br />
+<br/>
+<br/>
+<br/>
+<br/>
 
 ## 1. Get an fmsg address + API key
 
