@@ -184,8 +184,8 @@ case without this tool.
 
 | Prompt | Surfaces as | Body |
 |---|---|---|
-| `share_session` | `/mcp__fmsg__share_session [recipient]` | "Share this session with {recipient} via fmsg: call share_session, present the preview (recipients, size, redactions, immutability warning), and on my approval re-invoke with the confirm_token." |
-| `continue_thread` | `/mcp__fmsg__continue_thread [id]` | "Call continue_thread with fmsg_id {id \| -1} and continue the conversation from the returned context." |
+| `share_session` | `/fmsg:share_session [recipient]` | "Share this session with {recipient} via fmsg: call share_session, present the preview (recipients, size, redactions, immutability warning), and on my approval re-invoke with the confirm_token." |
+| `continue_thread` | `/fmsg:continue_thread [id]` | "Call continue_thread with fmsg_id {id \| -1} and continue the conversation from the returned context." |
 
 Tools remain the universal path on surfaces without slash commands.
 

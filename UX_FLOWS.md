@@ -22,7 +22,7 @@ tool *result*.
 ## 1. Share — Claude Code — **2 steps**
 
 1. Alice: *"Share this session with Bob on fmsg"* (or
-   `/mcp__fmsg__share_session bob`).
+   `/fmsg:share_session bob`).
    - `share_session` phase 1 runs: locates the session JSONL, serializes,
      redacts, resolves `bob` → `@bob@example.com`; Claude presents the preview —
      recipient(s), turn count, sizes, redaction hits, "cannot be unsent".
@@ -44,7 +44,7 @@ click on a "Share via fmsg" button; the confirm remains.)
 
 Bob was told (or sees in his fmsg client) that Alice shared a session.
 
-1. Bob, in his project: `/mcp__fmsg__continue_thread` (no id needed —
+1. Bob, in his project: `/fmsg:continue_thread` (no id needed —
    defaults to `-1`, the latest inbox message) or *"continue the fmsg thread from
    Alice"*.
 2. Bob approves the tool call.
@@ -88,7 +88,7 @@ Claude session — shared by @alice@example.com · claude-code · verbatim
 2026-08-04 16:20 UTC · 42 turns
 
 Open in Claude: https://claude.ai/new?q=Use%20the%20fmsg%20tool%20…
-Claude Code: /mcp__fmsg__continue_thread   (full transcript attached)
+Claude Code: /fmsg:continue_thread   (full transcript attached)
 
 **Alice:** The token refresh loop is 401ing after rotation…
 **Claude:** Looking at auth/manager.go, the refresh path re-uses…
@@ -116,7 +116,7 @@ the one-time `fmsgk_` key and (already in the installer) the org's
    fmsg-mcp` scoped to the user.
 2. Bob pastes the `fmsgk_` key when the script prompts.
 
-Done — next Claude Code start has `/mcp__fmsg__…` available. No fmsg knowledge, no
+Done — next Claude Code start has `/fmsg:…` available. No fmsg knowledge, no
 hand-edited config. The honest limit: step 2 (a per-user credential) cannot be
 removed given fmsg-cli's auth model; org SSO auto-provisioning of sub-account keys
 would require IdP-side automation that is deployment-specific and out of scope

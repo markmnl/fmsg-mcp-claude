@@ -64,7 +64,7 @@ share, deep-link resolver, context-file bundling, compaction.
 - `reply_to_thread` incl. participant fan-out parsing (golden-tested).
 
 ### P3 — polish + distribution *(exit: non-technical install in 2 steps)*
-- MCP prompts (`/mcp__fmsg__share_session`, `/mcp__fmsg__continue_thread`),
+- MCP prompts (`/fmsg:share_session`, `/fmsg:continue_thread`),
   `list_shared_threads` (cached), model-serialized share fallback path.
 - Installer script (binaries for linux/darwin × amd64/arm64, env file, hook,
   `claude mcp add`), org-config template (`FMSG_API_URL`, `FMSG_DEFAULT_DOMAIN`,

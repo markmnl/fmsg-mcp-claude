@@ -228,14 +228,14 @@ What Bob sees in his fmsg client is the Markdown body, whose header contains:
 
 ```
 **Open in Claude:** https://claude.ai/new?q=Use%20the%20fmsg%20tool%20continue_thread%20with%20message%20id%2042
-Or in Claude Code: /mcp__fmsg__continue_thread 42   (or just: "continue the fmsg thread")
+Or in Claude Code: /fmsg:continue_thread 42   (or just: "continue the fmsg thread")
 ```
 
 - The claude.ai link (assumption A2) lands Bob in a new chat with the instruction
   prefilled; sending it triggers `continue_thread(42)` — one tool approval and he's
   in the seeded session.
 - In Claude Code, `continue_thread` is also registered as an MCP **prompt**, so
-  `/mcp__fmsg__continue_thread` works as a slash command; `fmsg_id: -1` (the CLI's
+  `/fmsg:continue_thread` works as a slash command; `fmsg_id: -1` (the CLI's
   native latest-inbox index) covers "I just got Alice's share" without Bob copying
   any ID.
 - The integer id in the link is valid for Bob because same-host participants share

@@ -74,8 +74,8 @@ Just ask Claude, in any session:
   all participants.
 - *"Did my share reach everyone?"* — per-recipient delivery status.
 
-In Claude Code these are also slash commands: `/mcp__fmsg__share_session`
-and `/mcp__fmsg__continue_thread`.
+In Claude Code these are also slash commands: `/fmsg:share_session`
+and `/fmsg:continue_thread`.
 
 **How shares work:** one Markdown fmsg message per prompt, chained with
 fmsg's reply links — the thread mirrors your conversation, so recipients can
