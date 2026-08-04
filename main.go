@@ -108,6 +108,23 @@ func (s *server) ensureCLI(ctx context.Context) error {
 	return s.checkErr
 }
 
+// resolveIdentity reads the local identity and, when the address isn't
+// locally knowable (env API key, no auth.json), recovers it from the `from`
+// field of the newest authored message. A fresh account with nothing sent yet
+// stays unknown until its first send — fmsg-cli has no whoami (upstream ask).
+func (s *server) resolveIdentity(ctx context.Context) (*identity.Whoami, error) {
+	w, err := s.idCfg.ReadWhoami()
+	if err != nil {
+		return nil, err
+	}
+	if w.Address == "" {
+		if items, serr := s.runner.ListSent(ctx, 1); serr == nil && len(items) > 0 {
+			w.Address = items[0].From
+		}
+	}
+	return w, nil
+}
+
 func jsonResult(v any) (*mcp.CallToolResult, any, error) {
 	raw, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
@@ -148,7 +165,7 @@ func (s *server) shareSession(ctx context.Context, req *mcp.CallToolRequest, arg
 }
 
 func (s *server) sharePreview(ctx context.Context, args shareArgs) (*mcp.CallToolResult, any, error) {
-	who, err := s.idCfg.ReadWhoami()
+	who, err := s.resolveIdentity(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -410,7 +427,7 @@ func (s *server) replyToThread(ctx context.Context, req *mcp.CallToolRequest, ar
 	if err != nil {
 		return nil, nil, err
 	}
-	who, err := s.idCfg.ReadWhoami()
+	who, err := s.resolveIdentity(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -498,11 +515,21 @@ func (s *server) listThreads(ctx context.Context, req *mcp.CallToolRequest, args
 }
 
 func (s *server) whoami(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
-	w, err := s.idCfg.ReadWhoami()
+	if err := s.ensureCLI(ctx); err != nil {
+		return nil, nil, err
+	}
+	w, err := s.resolveIdentity(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	return jsonResult(w)
+	out := map[string]any{"address": w.Address, "api_url": w.APIURL, "auth_type": w.AuthType}
+	if w.ExpiresAt != "" {
+		out["expires_at"] = w.ExpiresAt
+	}
+	if w.Address == "" {
+		out["note"] = "address not locally knowable: the API key's granted address lives server-side and nothing has been sent yet; it will be known after the first share (fmsg-cli lacks a whoami command — upstream ask)"
+	}
+	return jsonResult(out)
 }
 
 type resolveArgs struct {

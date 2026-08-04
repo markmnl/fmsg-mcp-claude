@@ -213,6 +213,12 @@ func (r *Runner) List(ctx context.Context, limit int) ([]ListItem, error) {
 	return decode[[]ListItem](r, ctx, "list", "--limit", strconv.Itoa(limit))
 }
 
+// ListSent returns messages authored by the authenticated identity
+// (including drafts).
+func (r *Runner) ListSent(ctx context.Context, limit int) ([]ListItem, error) {
+	return decode[[]ListItem](r, ctx, "sent", "--limit", strconv.Itoa(limit))
+}
+
 type idResult struct {
 	ID int64 `json:"id"`
 }
