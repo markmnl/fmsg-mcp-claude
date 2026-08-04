@@ -62,7 +62,7 @@ func main() {
 		Description: "Share the current Claude session as an fmsg message (Markdown transcript) to the recipient " +
 			"addresses given. Two-phase: the first call returns a preview (recipients, size, redactions) and a " +
 			"confirm_token; present the preview to the user and, on their approval, call again with confirm_token " +
-			"to send. fmsg messages are immutable and cannot be unsent.",
+			"to send. Sent fmsg messages are permanent: they cannot be recalled, edited, or deleted.",
 	}, s.shareSession)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -241,7 +241,7 @@ func (s *server) sharePreview(ctx context.Context, args shareArgs) (*mcp.CallToo
 		"total_bytes":   total,
 		"largest_bytes": largest,
 		"redactions":    hits,
-		"warning":       "This sends one pid-chained fmsg message per user prompt. fmsg messages are immutable and cannot be unsent. Present this preview to the user and only re-invoke with confirm_token after their explicit approval.",
+		"warning":       "This sends one pid-chained fmsg message per user prompt. Sending is permanent: fmsg messages cannot be recalled, edited, or deleted afterwards. Present this preview to the user and only re-invoke with confirm_token after their explicit approval.",
 		"confirm_token": token,
 	})
 }
@@ -262,8 +262,8 @@ func (s *server) shareConfirm(ctx context.Context, token string) (*mcp.CallToolR
 	defer os.RemoveAll(dir)
 
 	// Send one message per exchange, each pid-linked to the previous, so the
-	// fmsg thread mirrors the conversation. Already-sent messages cannot be
-	// unsent, so a mid-chain failure reports what did go out.
+	// fmsg thread mirrors the conversation. Sent messages are permanent, so a
+	// mid-chain failure reports what did go out.
 	var sent []int64
 	prev := p.replyTo
 	for i, body := range p.bodies {
@@ -377,7 +377,7 @@ func (s *server) sharePartial(ctx context.Context, sent []int64, failedDraft int
 		"status":   "partial",
 		"fmsg_ids": sent,
 		"error":    cause.Error(),
-		"note":     fmt.Sprintf("%d of the chain's messages were sent before the failure and cannot be unsent; retry can continue the chain with reply_to_fmsg_id=%d", len(sent), sent[len(sent)-1]),
+		"note":     fmt.Sprintf("%d of the chain's messages were sent before the failure and are permanent; retry can continue the chain with reply_to_fmsg_id=%d", len(sent), sent[len(sent)-1]),
 	})
 }
 
@@ -648,7 +648,7 @@ func addPrompts(srv *mcp.Server) {
 	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		recipients := req.Params.Arguments["recipients"]
 		text := fmt.Sprintf("Share this session with %q via fmsg: call the share_session tool, present its preview to me "+
-			"(recipients, turn count, size, redactions, and the cannot-be-unsent warning), and only after I approve, "+
+			"(recipients, turn count, size, redactions, and the sending-is-permanent warning), and only after I approve, "+
 			"call share_session again with the confirm_token.", recipients)
 		return &mcp.GetPromptResult{Messages: []*mcp.PromptMessage{
 			{Role: "user", Content: &mcp.TextContent{Text: text}},
