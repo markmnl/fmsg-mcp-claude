@@ -1,0 +1,102 @@
+package session
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+const sampleJSONL = `{"type":"summary","summary":"Fixing auth","leafUuid":"x"}
+{"type":"user","sessionId":"abc-123","cwd":"/home/alice/proj","gitBranch":"main","message":{"role":"user","content":"The token refresh loop is 401ing"}}
+{"type":"assistant","sessionId":"abc-123","message":{"role":"assistant","model":"claude-fable-5","content":[{"type":"thinking","thinking":"private reasoning"},{"type":"text","text":"Looking at auth/manager.go"},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"go test ./..."}}]}}
+{"type":"user","sessionId":"abc-123","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":[{"type":"text","text":"FAIL: TestRefresh"}]}]}}
+{"type":"system","subtype":"other"}
+not-json-line
+`
+
+func writeSample(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "abc-123.jsonl")
+	if err := os.WriteFile(path, []byte(sampleJSONL), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestParseJSONL(t *testing.T) {
+	pt, err := ParseJSONL(writeSample(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pt.SessionID != "abc-123" || pt.CWD != "/home/alice/proj" || pt.Model != "claude-fable-5" {
+		t.Fatalf("metadata: %+v", pt)
+	}
+	if len(pt.Turns) != 3 {
+		t.Fatalf("turns: got %d want 3", len(pt.Turns))
+	}
+	for _, turn := range pt.Turns {
+		for _, b := range turn.Blocks {
+			if strings.Contains(b.Text, "private reasoning") {
+				t.Fatal("thinking blocks must be excluded")
+			}
+		}
+	}
+	if pt.Turns[2].Blocks[0].Type != "tool_result" || pt.Turns[2].Blocks[0].Text != "FAIL: TestRefresh" {
+		t.Fatalf("tool_result flattening: %+v", pt.Turns[2].Blocks[0])
+	}
+}
+
+func TestRedact(t *testing.T) {
+	turns := []Turn{{Role: "user", Blocks: []Block{
+		{Type: "text", Text: "my key is fmsgk_abc123_S3cretPart and jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhYmMifQ.c2lnbmF0dXJlLXBhcnQ"},
+		{Type: "tool_result", Text: "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI export done; AKIAIOSFODNN7EXAMPLE"},
+		{Type: "text", Text: "-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----"},
+	}}}
+	hits := Redact(turns)
+	joined := ""
+	for _, b := range turns[0].Blocks {
+		joined += b.Text + "\n"
+	}
+	for _, leak := range []string{"S3cretPart", "wJalrXUtnFEMI", "AKIAIOSFODNN7EXAMPLE", "MIIE", "c2lnbmF0dXJl"} {
+		if strings.Contains(joined, leak) {
+			t.Fatalf("leaked %q in %q", leak, joined)
+		}
+	}
+	if len(hits) < 4 {
+		t.Fatalf("expected >=4 pattern families hit, got %v", hits)
+	}
+}
+
+func TestRenderMarkdownMarkerFirstLine(t *testing.T) {
+	env := &Envelope{
+		Format: FormatName, FormatVersion: FormatVersion,
+		Title:      "Fix auth",
+		Provenance: Provenance{Surface: "claude-code", Fidelity: "verbatim", SharerAddress: "@a_claude@example.com", SharedAt: 1754280000},
+		Turns:      []Turn{{Role: "user", Blocks: []Block{{Type: "text", Text: "hello"}}}},
+	}
+	body := RenderMarkdown(env, 42)
+	if !strings.HasPrefix(body, BodyMarker+"\n") {
+		t.Fatalf("body must start with the marker; got %q", body[:60])
+	}
+	if !strings.Contains(body, "claude.ai/new?q=") || !strings.Contains(body, "continue_thread%20with%20message%20id%2042") {
+		t.Fatal("open-in-claude link missing")
+	}
+}
+
+func TestEncodeGzipThreshold(t *testing.T) {
+	small := &Envelope{Format: FormatName, FormatVersion: 1}
+	name, _, err := Encode(small)
+	if err != nil || name != AttachmentName {
+		t.Fatalf("small envelope: %s %v", name, err)
+	}
+	big := &Envelope{Format: FormatName, FormatVersion: 1,
+		Turns: []Turn{{Blocks: []Block{{Type: "text", Text: strings.Repeat("x", GzipThreshold+1)}}}}}
+	name, data, err := Encode(big)
+	if err != nil || name != AttachmentNameGz {
+		t.Fatalf("big envelope: %s %v", name, err)
+	}
+	if len(data) < 2 || data[0] != 0x1f || data[1] != 0x8b {
+		t.Fatal("gzip magic bytes missing")
+	}
+}

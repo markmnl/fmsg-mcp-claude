@@ -1,0 +1,156 @@
+package session
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"os"
+)
+
+// jsonlLine is the subset of a Claude Code transcript line the parser reads.
+// The JSONL schema is assumption A3 (INTERFACES.md §8): parse tolerantly and
+// skip anything unrecognized rather than failing the whole transcript.
+type jsonlLine struct {
+	Type      string `json:"type"` // user | assistant | summary | system | ...
+	SessionID string `json:"sessionId"`
+	CWD       string `json:"cwd"`
+	GitBranch string `json:"gitBranch"`
+	Message   *struct {
+		Role    string          `json:"role"`
+		Model   string          `json:"model"`
+		Content json.RawMessage `json:"content"` // string or []block
+	} `json:"message"`
+}
+
+type jsonlBlock struct {
+	Type      string          `json:"type"`
+	Text      string          `json:"text"`
+	Thinking  string          `json:"thinking"`
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	Input     any             `json:"input"`
+	ToolUseID string          `json:"tool_use_id"`
+	Content   json.RawMessage `json:"content"` // tool_result payload: string or []block
+}
+
+// ParsedTranscript is the result of reading a Claude Code session JSONL file.
+type ParsedTranscript struct {
+	Turns     []Turn
+	SessionID string
+	CWD       string
+	GitBranch string
+	Model     string
+}
+
+// ParseJSONL reads a Claude Code session transcript. Thinking blocks are
+// excluded by design (privacy + tokens, ARCHITECTURE.md §2); unknown line and
+// block types are skipped.
+func ParseJSONL(path string) (*ParsedTranscript, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("opening transcript: %w", err)
+	}
+	defer f.Close()
+
+	pt := &ParsedTranscript{}
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 1<<20), 32<<20)
+	for sc.Scan() {
+		raw := sc.Bytes()
+		if len(raw) == 0 {
+			continue
+		}
+		var line jsonlLine
+		if err := json.Unmarshal(raw, &line); err != nil {
+			continue // tolerate non-JSON or foreign lines
+		}
+		if line.SessionID != "" && pt.SessionID == "" {
+			pt.SessionID = line.SessionID
+		}
+		if line.CWD != "" && pt.CWD == "" {
+			pt.CWD = line.CWD
+		}
+		if line.GitBranch != "" && pt.GitBranch == "" {
+			pt.GitBranch = line.GitBranch
+		}
+		if line.Message == nil || (line.Type != "user" && line.Type != "assistant") {
+			continue
+		}
+		if line.Message.Model != "" {
+			pt.Model = line.Message.Model
+		}
+		blocks := parseContent(line.Message.Content)
+		if len(blocks) == 0 {
+			continue
+		}
+		pt.Turns = append(pt.Turns, Turn{I: len(pt.Turns), Role: line.Message.Role, Blocks: blocks})
+	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("reading transcript: %w", err)
+	}
+	if len(pt.Turns) == 0 {
+		return nil, fmt.Errorf("no conversation turns found in %s", path)
+	}
+	return pt, nil
+}
+
+func parseContent(raw json.RawMessage) []Block {
+	if len(raw) == 0 {
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if s == "" {
+			return nil
+		}
+		return []Block{{Type: "text", Text: s}}
+	}
+	var jbs []jsonlBlock
+	if err := json.Unmarshal(raw, &jbs); err != nil {
+		return nil
+	}
+	var out []Block
+	for _, jb := range jbs {
+		switch jb.Type {
+		case "text":
+			if jb.Text != "" {
+				out = append(out, Block{Type: "text", Text: jb.Text})
+			}
+		case "tool_use":
+			out = append(out, Block{Type: "tool_use", ID: jb.ID, Name: jb.Name, Input: jb.Input})
+		case "tool_result":
+			out = append(out, Block{
+				Type:      "tool_result",
+				ToolUseID: jb.ToolUseID,
+				Text:      flattenResult(jb.Content),
+			})
+		default:
+			// thinking and unknown block types are dropped
+		}
+	}
+	return out
+}
+
+func flattenResult(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	var jbs []jsonlBlock
+	if err := json.Unmarshal(raw, &jbs); err != nil {
+		return ""
+	}
+	out := ""
+	for _, jb := range jbs {
+		if jb.Type == "text" && jb.Text != "" {
+			if out != "" {
+				out += "\n"
+			}
+			out += jb.Text
+		}
+	}
+	return out
+}
