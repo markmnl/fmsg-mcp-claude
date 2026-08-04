@@ -83,13 +83,15 @@ func TestErrorClassification(t *testing.T) {
 	}
 }
 
-func TestUpdateRecipientsArgOrder(t *testing.T) {
+func TestUpdateFullRestatesEverything(t *testing.T) {
 	r, argvLog := stubCLI(t, `{"id": 5}`, "", 0)
-	if err := r.UpdateRecipients(context.Background(), 5, []string{"@x@example.com", "@y@example.com"}); err != nil {
+	err := r.UpdateFull(context.Background(), 5, "/tmp/body.md",
+		[]string{"@x@example.com", "@y@example.com"}, "text/markdown", "", 41)
+	if err != nil {
 		t.Fatal(err)
 	}
 	argv, _ := os.ReadFile(argvLog)
-	want := "--json update --to @x@example.com,@y@example.com 5\n"
+	want := "--json update --type text/markdown --to @x@example.com,@y@example.com --pid 41 5 /tmp/body.md\n"
 	if string(argv) != want {
 		t.Fatalf("argv: %q want %q", argv, want)
 	}

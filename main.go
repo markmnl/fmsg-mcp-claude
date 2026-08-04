@@ -279,12 +279,9 @@ func (s *server) shareConfirm(ctx context.Context, token string) (*mcp.CallToolR
 		if err != nil {
 			return s.sharePartial(ctx, sent, 0, err)
 		}
-		if len(p.recipients) > 1 {
-			if err := s.runner.UpdateRecipients(ctx, id, p.recipients); err != nil {
-				return s.sharePartial(ctx, sent, id, err)
-			}
-		}
-		if err := s.runner.SetType(ctx, id, "text/markdown"); err != nil {
+		// The update must restate every field: webapi PUT is full-replacement,
+		// so a type-only update would wipe recipients, pid, and topic.
+		if err := s.runner.UpdateFull(ctx, id, bodyPath, p.recipients, "text/markdown", topic, prev); err != nil {
 			return s.sharePartial(ctx, sent, id, err)
 		}
 		if err := s.runner.DraftSend(ctx, id); err != nil {
@@ -542,12 +539,8 @@ func (s *server) replyToThread(ctx context.Context, req *mcp.CallToolRequest, ar
 		}
 		return nil, nil, cause
 	}
-	if len(recipients) > 1 {
-		if err := s.runner.UpdateRecipients(ctx, id, recipients); err != nil {
-			return cleanup(err)
-		}
-	}
-	if err := s.runner.SetType(ctx, id, "text/markdown"); err != nil {
+	// Restate every field — webapi PUT is full-replacement (see UpdateFull).
+	if err := s.runner.UpdateFull(ctx, id, bodyPath, recipients, "text/markdown", "", args.FmsgID); err != nil {
 		return cleanup(err)
 	}
 	if err := s.runner.DraftSend(ctx, id); err != nil {

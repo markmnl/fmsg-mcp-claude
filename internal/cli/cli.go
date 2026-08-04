@@ -254,16 +254,21 @@ func (r *Runner) DraftCreate(ctx context.Context, recipient, bodyPath, topic str
 	return res.ID, err
 }
 
-// SetType sets a draft's MIME type.
-func (r *Runner) SetType(ctx context.Context, id int64, mime string) error {
-	_, err := decode[idResult](r, ctx, "update", "--type", mime, strconv.FormatInt(id, 10))
-	return err
-}
-
-// SetBodyAndType replaces a draft's body from bodyPath and sets its MIME type
-// in one update call.
-func (r *Runner) SetBodyAndType(ctx context.Context, id int64, bodyPath, mime string) error {
-	_, err := decode[idResult](r, ctx, "update", "--type", mime, strconv.FormatInt(id, 10), bodyPath)
+// UpdateFull rewrites a draft with every field restated. fmsg-webapi's PUT is
+// full-replacement while fmsg-cli's update sends only provided fields, so a
+// partial update silently wipes recipients, pid, and topic (upstream bug —
+// OPEN_QUESTIONS). Restating everything makes replacement semantics harmless.
+// Exactly one of topic (root) or pid (reply) may be set.
+func (r *Runner) UpdateFull(ctx context.Context, id int64, bodyPath string, to []string, mime, topic string, pid int64) error {
+	args := []string{"update", "--type", mime, "--to", strings.Join(to, ",")}
+	if topic != "" {
+		args = append(args, "--topic", topic)
+	}
+	if pid != 0 {
+		args = append(args, "--pid", strconv.FormatInt(pid, 10))
+	}
+	args = append(args, strconv.FormatInt(id, 10), bodyPath)
+	_, err := decode[idResult](r, ctx, args...)
 	return err
 }
 
@@ -273,12 +278,6 @@ func (r *Runner) DraftSend(ctx context.Context, id int64) error {
 		ID   int64   `json:"id"`
 		Time float64 `json:"time"`
 	}](r, ctx, "draft", "send", strconv.FormatInt(id, 10))
-	return err
-}
-
-// UpdateRecipients replaces a draft's recipient list (`update --to a,b,c`).
-func (r *Runner) UpdateRecipients(ctx context.Context, id int64, recipients []string) error {
-	_, err := decode[idResult](r, ctx, "update", "--to", strings.Join(recipients, ","), strconv.FormatInt(id, 10))
 	return err
 }
 
