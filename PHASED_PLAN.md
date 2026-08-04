@@ -1,5 +1,20 @@
 # PHASED_PLAN.md
 
+> **Progress ledger (2026-08-04)** — see [STATUS.md](./STATUS.md) for the
+> full state and decision log:
+> - **P1 done** (share + resume + reply; verbatim on Claude Code,
+>   model-serialized fallback), **P2 done** (two-phase confirm, redaction,
+>   resolution), **P3 done differently** (release workflow with embedded CLI
+>   + Desktop .mcpb bundles replaced the installer script; docs done).
+> - **P0 partially skipped**: unit tests + live testing on real hosts stood
+>   in for the docker-stack e2e, which remains to be built (now CI work).
+> - **P4 partially done**: upstream #1 (--json) and #7 (whoami) merged;
+>   live testing added #15–17 (webapi PUT/validation bugs) — now the top
+>   upstream priority.
+> - The v0.1 data model this plan assumed (envelope attachment, dual
+>   addressing) was replaced in v0.2 — see STATUS.md decisions 2–3.
+
+
 ## MVP definition
 
 The smallest build where **Share and Resume are both trivial for one pair of users

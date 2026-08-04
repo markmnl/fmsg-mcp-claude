@@ -11,6 +11,7 @@
 > the bodies on the lineage. Sections below about the envelope schema, dual
 > addressing, and deepest-base assembly are superseded; the two-phase confirm,
 > redaction, transcript locator, and CLI-only constraint are unchanged.
+> Current truth lives in [STATUS.md](./STATUS.md).
 
 An MCP server, `fmsg-mcp`, that turns a Claude session into an fmsg thread (Share)
 and an fmsg thread's ancestor chain into Claude context (Resume). Implementation
