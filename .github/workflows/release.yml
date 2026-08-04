@@ -41,14 +41,17 @@ jobs:
       - name: Build binaries
         run: |
           set -euo pipefail
-          mkdir -p dist
+          mkdir -p dist internal/cli/embedded
           for p in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
             goos="${p%/*}" goarch="${p#*/}" ext=""
             [ "$goos" = windows ] && ext=".exe"
-            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-              go build -trimpath -ldflags "-s -w" -o "dist/fmsg-mcp_${goos}_${goarch}${ext}" .
+            # Build the CLI for this platform, publish it standalone, and embed
+            # it into fmsg-mcp so users need a single download.
             (cd /tmp/fmsg-cli && CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
               go build -trimpath -ldflags "-s -w" -o "$GITHUB_WORKSPACE/dist/fmsg_${goos}_${goarch}${ext}" .)
+            cp "dist/fmsg_${goos}_${goarch}${ext}" internal/cli/embedded/fmsg-bin
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -tags embedcli -trimpath -ldflags "-s -w" -o "dist/fmsg-mcp_${goos}_${goarch}${ext}" .
           done
           ls -l dist
 
@@ -65,7 +68,6 @@ jobs:
             work="bundle/$label"
             mkdir -p "$work/server"
             cp "dist/fmsg-mcp_${goos}_${goarch}${ext}" "$work/server/fmsg-mcp${ext}"
-            cp "dist/fmsg_${goos}_${goarch}${ext}"     "$work/server/fmsg${ext}"
             chmod +x "$work/server/"*
 
             sed -e "s/__VERSION__/${VERSION}/g" \

@@ -21,8 +21,7 @@
       "env": {
         "FMSG_API_URL": "${user_config.api_url}",
         "FMSG_API_KEY": "${user_config.api_key}",
-        "FMSG_DEFAULT_DOMAIN": "${user_config.default_domain}",
-        "FMSG_CLI": "${__dirname}/server/fmsg__EXT__"
+        "FMSG_DEFAULT_DOMAIN": "${user_config.default_domain}"
       }
     }
   },

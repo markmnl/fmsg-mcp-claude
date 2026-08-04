@@ -29,15 +29,15 @@ That's it — everything needed is inside the bundle.
 ### Claude Code (Linux / macOS / Windows)
 
 1. From the [latest release](https://github.com/markmnl/fmsg-mcp-claude/releases/latest),
-   download `fmsg-mcp_<os>_<arch>` and `fmsg_<os>_<arch>`, put them somewhere
-   like `~/bin`, and `chmod +x` them.
+   download `fmsg-mcp_<os>_<arch>` for your platform, put it somewhere like
+   `~/bin/fmsg-mcp`, and `chmod +x` it. That's the only file — the fmsg CLI it
+   uses is built in.
 2. Register the server:
 
    ```sh
    claude mcp add fmsg \
      --env FMSG_API_URL=<your fmsg Web API URL> \
      --env FMSG_API_KEY=fmsgk_... \
-     --env FMSG_CLI=~/bin/fmsg \
      -- ~/bin/fmsg-mcp
    ```
 
@@ -90,15 +90,17 @@ or deleted — which is why every share shows a preview first.
 |---|---|---|
 | `FMSG_API_URL` | `http://127.0.0.1:8000` | Your host's fmsg Web API base URL |
 | `FMSG_API_KEY` | — | `fmsgk_…` API key; its granted address is who you send as |
-| `FMSG_CLI` | `fmsg` | Path to the [fmsg-cli](https://github.com/markmnl/fmsg-cli) binary |
+| `FMSG_CLI` | *(built in)* | Override the bundled [fmsg-cli](https://github.com/markmnl/fmsg-cli) with your own binary |
 | `FMSG_DEFAULT_DOMAIN` | — | Lets short names resolve: `bob` → `@bob@<domain>` |
 | `FMSG_DIRECTORY` | — | JSON file mapping short names to full addresses |
 
 ## Development
 
 ```sh
-go build -o fmsg-mcp .   # needs fmsg-cli ≥ the --json/whoami release on PATH
+go build -o fmsg-mcp .   # dev build: uses fmsg-cli from PATH (needs --json/whoami)
 go test ./...
+# release-style build with the CLI embedded:
+#   cp <fmsg binary> internal/cli/embedded/fmsg-bin && go build -tags embedcli .
 ```
 
 Design docs: [ARCHITECTURE.md](./ARCHITECTURE.md) · [TOOLS.md](./TOOLS.md) ·

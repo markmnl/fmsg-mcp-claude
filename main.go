@@ -50,7 +50,7 @@ type server struct {
 
 func main() {
 	s := &server{
-		runner:  cli.NewRunnerFromEnv(),
+		runner:  cli.NewRunnerFromEnv(version),
 		idCfg:   identity.FromEnv(),
 		pending: map[string]*pendingShare{},
 	}

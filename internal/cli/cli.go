@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -118,10 +120,16 @@ type Runner struct {
 }
 
 // NewRunnerFromEnv builds a Runner from the server's own environment.
-func NewRunnerFromEnv() *Runner {
+// Precedence for the CLI binary: explicit FMSG_CLI, then the embedded CLI
+// (release builds), then `fmsg` on PATH.
+func NewRunnerFromEnv(version string) *Runner {
 	bin := os.Getenv("FMSG_CLI")
 	if bin == "" {
-		bin = "fmsg"
+		if extracted, err := extractEmbeddedCLI(version); err == nil && extracted != "" {
+			bin = extracted
+		} else {
+			bin = "fmsg"
+		}
 	}
 	var env []string
 	for _, k := range []string{"FMSG_API_URL", "FMSG_API_KEY", "HOME", "XDG_CONFIG_HOME", "PATH"} {
@@ -130,6 +138,55 @@ func NewRunnerFromEnv() *Runner {
 		}
 	}
 	return &Runner{Bin: bin, Dir: os.TempDir(), Env: env, Timeout: 60 * time.Second}
+}
+
+// extractEmbeddedCLI writes the embedded fmsg binary (if this build carries
+// one) to the user cache dir, keyed by server version, and returns its path.
+// Returns "" when this build has no embedded CLI.
+func extractEmbeddedCLI(version string) (string, error) {
+	if len(embeddedCLI) == 0 {
+		return "", nil
+	}
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(cacheDir, "fmsg-mcp")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	name := "fmsg-" + version
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	path := filepath.Join(dir, name)
+	if info, serr := os.Stat(path); serr == nil && info.Size() == int64(len(embeddedCLI)) {
+		return path, nil
+	}
+	// Write via temp + rename so a concurrent server start never sees a
+	// half-written binary.
+	tmp, err := os.CreateTemp(dir, name+".tmp-*")
+	if err != nil {
+		return "", err
+	}
+	if _, err := tmp.Write(embeddedCLI); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name())
+		return "", err
+	}
+	if err := os.Chmod(tmp.Name(), 0o755); err != nil {
+		os.Remove(tmp.Name())
+		return "", err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		os.Remove(tmp.Name())
+		return "", err
+	}
+	return path, nil
 }
 
 // run invokes the CLI with --json prepended (flags must precede any negative
