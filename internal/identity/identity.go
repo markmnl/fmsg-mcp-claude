@@ -22,6 +22,11 @@ type Config struct {
 	DirectoryPath string // FMSG_DIRECTORY: JSON map of short name -> address
 	DefaultDomain string // FMSG_DEFAULT_DOMAIN: convention fallback domain
 	AgentSuffix   string // FMSG_AGENT_SUFFIX, default "_claude"
+	// DualAddressing controls whether shares add the recipient's _claude
+	// sub-account (needed for the recipient to resume/reply via their own
+	// MCP server, but a dangling failed delivery when that sub-account
+	// doesn't exist). FMSG_DUAL_ADDRESSING=false disables it.
+	DualAddressing bool
 }
 
 // FromEnv builds a Config from the server environment.
@@ -31,9 +36,10 @@ func FromEnv() Config {
 		suffix = "_claude"
 	}
 	return Config{
-		DirectoryPath: os.Getenv("FMSG_DIRECTORY"),
-		DefaultDomain: os.Getenv("FMSG_DEFAULT_DOMAIN"),
-		AgentSuffix:   suffix,
+		DirectoryPath:  os.Getenv("FMSG_DIRECTORY"),
+		DefaultDomain:  os.Getenv("FMSG_DEFAULT_DOMAIN"),
+		AgentSuffix:    suffix,
+		DualAddressing: os.Getenv("FMSG_DUAL_ADDRESSING") != "false",
 	}
 }
 

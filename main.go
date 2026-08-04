@@ -283,7 +283,7 @@ func (s *server) shareConfirm(ctx context.Context, token string) (*mcp.CallToolR
 // sub-account and the sharer's human address (ARCHITECTURE.md §5).
 func (s *server) alsoAdded(recipient string, who *identity.Whoami) []string {
 	var out []string
-	if agent := s.idCfg.AgentFor(recipient); agent != "" && !strings.EqualFold(agent, recipient) {
+	if agent := s.idCfg.AgentFor(recipient); s.idCfg.DualAddressing && agent != "" && !strings.EqualFold(agent, recipient) {
 		out = append(out, agent)
 	}
 	if who != nil && who.HumanAddress != "" && !strings.EqualFold(who.HumanAddress, who.Address) {
