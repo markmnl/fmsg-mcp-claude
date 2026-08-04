@@ -1,4 +1,6 @@
-# fmsg-mcp-claude
+# fmsg MCP CLAUDE
+
+<img align="right" src="img/icon.png" alt="fmsg falcon" width="340">
 
 Share your Claude session with anyone as an [fmsg](https://github.com/markmnl/fmsg)
 thread — and open any fmsg thread in Claude with the full conversation as
