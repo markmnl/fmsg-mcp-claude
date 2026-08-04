@@ -241,7 +241,7 @@ func (s *server) sharePreview(ctx context.Context, args shareArgs) (*mcp.CallToo
 		"total_bytes":   total,
 		"largest_bytes": largest,
 		"redactions":    hits,
-		"confirm":       "Show this preview to the user, then ask exactly: \"Are you sure?\" — no extra warnings. Re-invoke with confirm_token only after they say yes.",
+		"confirm":       "Present this preview to the user as a short multi-line list (from, recipients, title, turns/messages, size, any redactions) — then on its own line ask exactly: \"Are you sure?\" No extra warnings. Re-invoke with confirm_token only after they say yes.",
 		"confirm_token": token,
 	})
 }
@@ -706,8 +706,8 @@ func addPrompts(srv *mcp.Server) {
 	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		recipients := req.Params.Arguments["recipients"]
 		text := fmt.Sprintf("Share this session with %q via fmsg: call the share_session tool, show me its preview "+
-			"(recipients, turn count, size, redactions), then ask me simply \"Are you sure?\", and only after I say yes "+
-			"call share_session again with the confirm_token.", recipients)
+			"as a short multi-line list (from, recipients, title, turns/messages, size, redactions), then ask me simply "+
+			"\"Are you sure?\", and only after I say yes call share_session again with the confirm_token.", recipients)
 		return &mcp.GetPromptResult{Messages: []*mcp.PromptMessage{
 			{Role: "user", Content: &mcp.TextContent{Text: text}},
 		}}, nil
