@@ -289,6 +289,17 @@ func (s *server) shareConfirm(ctx context.Context, token string) (*mcp.CallToolR
 		}
 		sent = append(sent, id)
 		prev = id
+		// Receiving hosts reject a reply whose parent they have not stored
+		// yet (fmsg code 6), and federation delivery is concurrent — so wait
+		// for this message to reach a terminal delivery state on every
+		// recipient before sending its child (OPEN_QUESTIONS #18).
+		if i < len(p.bodies)-1 {
+			if pending := s.waitDelivered(ctx, id, 60*time.Second); len(pending) > 0 {
+				return s.sharePartial(ctx, sent, 0, fmt.Errorf(
+					"message %d not yet delivered to %v after 60s; stopping so later messages aren't rejected as parent-not-found — once delivery_status shows it delivered, continue the chain with reply_to_fmsg_id=%d",
+					id, pending, id))
+			}
+		}
 	}
 
 	result := map[string]any{
@@ -304,6 +315,29 @@ func (s *server) shareConfirm(ctx context.Context, token string) (*mcp.CallToolR
 		result["delivery"] = delivery
 	}
 	return jsonResult(result)
+}
+
+// waitDelivered polls a sent message until every recipient has a terminal
+// delivery state (delivered, or a definitive failure code) or the timeout
+// elapses. It returns the addresses still pending; failures are terminal here
+// (a recipient whose root bounced will bounce the children too, which the
+// final delivery snapshot reports).
+func (s *server) waitDelivered(ctx context.Context, id int64, timeout time.Duration) []string {
+	deadline := time.Now().Add(timeout)
+	for {
+		var pending []string
+		if msg, err := s.runner.Get(ctx, id); err == nil {
+			for _, d := range msg.ToDelivery {
+				if d.TimeDelivered == nil && d.ResponseCode == nil {
+					pending = append(pending, d.Addr)
+				}
+			}
+		}
+		if len(pending) == 0 || time.Now().After(deadline) || ctx.Err() != nil {
+			return pending
+		}
+		time.Sleep(time.Second)
+	}
 }
 
 // deliveryEntry is one recipient's delivery state, decoded for readability.
@@ -354,6 +388,18 @@ func deliveryMeaning(d cli.RecipientDelivery) string {
 		return "failed: user unknown on that host"
 	case 102:
 		return "failed: user not accepting new messages"
+	case 1:
+		return "failed: message rejected as invalid"
+	case 4:
+		return "failed: too big for the receiving host"
+	case 6:
+		return "failed: receiving host had not stored the parent message yet (chain delivered out of order — see OPEN_QUESTIONS #18)"
+	case 7:
+		return "failed: message too old"
+	case 8:
+		return "failed: message timestamp in the future"
+	case 9:
+		return "failed: timestamp not after the parent's"
 	default:
 		if d.TimeDelivered != nil {
 			return fmt.Sprintf("delivered (response code %d)", *d.ResponseCode)

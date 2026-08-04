@@ -135,3 +135,12 @@ Same-host MVP is unaffected (webapi 10/10/20 MB budget; shared row IDs).
     has).
 17. **`POST /fmsg/:id/send` accepts a draft with zero recipients** — the
     recipientless messages from #15 sent without any validation error.
+18. **fmsgd federation delivers a pid chain out of order (found live,
+    2026-08-05):** messages sent in quick succession are delivered
+    concurrently, so a reply can reach the receiving host before its parent
+    is stored — the host correctly rejects it with code 6 (parent not found)
+    and fmsgd does not retry, so cross-host recipients receive only the root
+    of a chain. Fix: per-domain in-order delivery (don't send a message to a
+    domain until its parent's delivery there is confirmed), and/or retry
+    code-6 rejections with backoff. (fmsg-mcp works around it by waiting for
+    each message's terminal delivery state before sending its child.)

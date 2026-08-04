@@ -69,6 +69,11 @@ the global `--json` flag (also surfaces previously-dropped
   cross-host **resume may now work** (unverified — see next steps).
 - `whoami` with env-key auth needed the CLI's new `whoami` (the address
   lives in the exchanged JWT).
+- **Cross-host pid chains delivered out of order** (2026-08-05): fmsgd sends
+  concurrently, receiving hosts reject children whose parent isn't stored
+  yet (code 6, no retry) → remote recipients got only the chain's root.
+  Upstream issue #18; the server now waits for each message's terminal
+  delivery state before sending its child.
 
 ## Remaining work, in priority order
 
