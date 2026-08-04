@@ -81,7 +81,10 @@ the global `--json` flag (also surfaces previously-dropped
   delivery state before sending its child. Agreed host-side design: fmsgd's
   dispatch query holds a child for domain X until its parent is delivered
   there; webapi synchronously rejects replies to domains the parent never
-  reached. The MCP pacing workaround dies when the fmsgd fix lands.
+  reached — the webapi half is implemented (fmsg-webapi branch
+  `verify-reply-deliverable`, 409 on send with the add-to/new-thread
+  remedy); the fmsgd sequencing half remains. The MCP pacing workaround
+  dies when the fmsgd fix lands.
 
 ## Remaining work, in priority order
 
