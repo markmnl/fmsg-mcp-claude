@@ -108,11 +108,20 @@ func (s *server) ensureCLI(ctx context.Context) error {
 	return s.checkErr
 }
 
-// resolveIdentity reads the local identity and, when the address isn't
-// locally knowable (env API key, no auth.json), recovers it from the `from`
-// field of the newest authored message. A fresh account with nothing sent yet
-// stays unknown until its first send — fmsg-cli has no whoami (upstream ask).
+// resolveIdentity asks the CLI who it is (`fmsg --json whoami` — the JWT's
+// granted address). Falls back to local config plus the newest authored
+// message's `from` for older CLI builds without the command.
 func (s *server) resolveIdentity(ctx context.Context) (*identity.Whoami, error) {
+	if info, err := s.runner.Whoami(ctx); err == nil && info.Address != "" {
+		authType := "auth.json"
+		if os.Getenv("FMSG_API_KEY") != "" {
+			authType = "api_key_env"
+		}
+		return &identity.Whoami{
+			Address: info.Address, APIURL: info.APIURL,
+			AuthType: authType, ExpiresAt: info.TokenExpiresAt,
+		}, nil
+	}
 	w, err := s.idCfg.ReadWhoami()
 	if err != nil {
 		return nil, err

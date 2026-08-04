@@ -199,6 +199,22 @@ func (r *Runner) CheckJSONSupport(ctx context.Context) error {
 	return nil
 }
 
+// WhoamiInfo mirrors `fmsg --json whoami` output.
+type WhoamiInfo struct {
+	Address        string `json:"address"`
+	APIURL         string `json:"api_url"`
+	TokenExpiresAt string `json:"token_expires_at"`
+}
+
+// Whoami reports the authenticated identity.
+func (r *Runner) Whoami(ctx context.Context) (*WhoamiInfo, error) {
+	w, err := decode[WhoamiInfo](r, ctx, "whoami")
+	if err != nil {
+		return nil, err
+	}
+	return &w, nil
+}
+
 // Get fetches a message by id (negative index allowed).
 func (r *Runner) Get(ctx context.Context, id int64) (*Message, error) {
 	m, err := decode[Message](r, ctx, "get", strconv.FormatInt(id, 10))
