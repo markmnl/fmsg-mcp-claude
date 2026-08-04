@@ -78,7 +78,10 @@ the global `--json` flag (also surfaces previously-dropped
   concurrently, receiving hosts reject children whose parent isn't stored
   yet (code 6, no retry) → remote recipients got only the chain's root.
   Upstream issue #18; the server now waits for each message's terminal
-  delivery state before sending its child.
+  delivery state before sending its child. Agreed host-side design: fmsgd's
+  dispatch query holds a child for domain X until its parent is delivered
+  there; webapi synchronously rejects replies to domains the parent never
+  reached. The MCP pacing workaround dies when the fmsgd fix lands.
 
 ## Remaining work, in priority order
 

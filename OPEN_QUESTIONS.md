@@ -140,7 +140,13 @@ Same-host MVP is unaffected (webapi 10/10/20 MB budget; shared row IDs).
     concurrently, so a reply can reach the receiving host before its parent
     is stored — the host correctly rejects it with code 6 (parent not found)
     and fmsgd does not retry, so cross-host recipients receive only the root
-    of a chain. Fix: per-domain in-order delivery (don't send a message to a
-    domain until its parent's delivery there is confirmed), and/or retry
-    code-6 rejections with backoff. (fmsg-mcp works around it by waiting for
-    each message's terminal delivery state before sending its child.)
+    of a chain. **Agreed design (2026-08-05):** the host owns this, split in
+    two — (a) fmsgd's dispatch query sequences the merely-pending: don't
+    select a message's recipient rows for domain X while its parent still
+    has undelivered rows for domain X (cheap WHERE clause; webapi and fmsgd
+    share the store), keeping send instant for clients; (b) fmsg-webapi
+    rejects the impossible synchronously at send: a reply addressed to a
+    domain the parent was never delivered to (or where it permanently
+    failed) can never be accepted there — return an immediate error so the
+    client can add-to/resend instead. Once (a) lands, fmsg-mcp's 60s
+    chain-pacing workaround should be deleted.
