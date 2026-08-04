@@ -1,33 +1,38 @@
 # fmsg-mcp-claude
 
-An MCP server that bridges Claude sessions and [fmsg](https://github.com/markmnl/fmsg)
-threads: share a working Claude session with a teammate as an fmsg message
-(readable in any fmsg client), and resume a Claude session seeded with the
-ancestor history of any fmsg thread message.
+Share your Claude session with anyone as an [fmsg](https://github.com/markmnl/fmsg)
+thread — and open any fmsg thread in Claude with the full conversation as
+context. Shares are plain Markdown messages: readable in any fmsg client,
+usable by any agent.
 
-## Quick start
+## 1. Get an fmsg address + API key
 
-**You need an fmsg address and an API key** (`fmsgk_…`) on an fmsg host. No
-host? Create a free account at **[fmsg.io](https://fmsg.io)** and generate an
-API key under your account.
+You send as an fmsg address, authenticated by an API key (`fmsgk_…`):
 
-**Claude Desktop (macOS / Windows)**
+- **No fmsg host?** Create a free account at **[fmsg.io](https://fmsg.io)**
+  and generate an API key under your account.
+- **Self-hosting?** Run your own host with
+  [fmsg-docker](https://github.com/markmnl/fmsg-docker).
 
-1. Download the `.mcpb` bundle for your platform from the
-   [latest release](https://github.com/markmnl/fmsg-mcp-claude/releases/latest)
-   (`fmsg-darwin-arm64.mcpb`, `fmsg-darwin-x64.mcpb`, or `fmsg-windows-x64.mcpb`).
-2. Open it with Claude Desktop (double-click, or Settings → Extensions →
-   Install Extension…) and paste your fmsg Web API URL and API key when
-   prompted.
-3. Done — ask Claude to *"share this session with @friend@example.com via
-   fmsg"* or *"continue my latest fmsg thread"*.
+## 2. Install
 
-**Claude Code (Linux / macOS / Windows)**
+### Claude Desktop (macOS / Windows)
 
-1. Download `fmsg-mcp_<os>_<arch>` and `fmsg_<os>_<arch>` from the
-   [latest release](https://github.com/markmnl/fmsg-mcp-claude/releases/latest)
-   and make them executable (e.g. into `~/bin`).
+1. Download the bundle for your platform from the
+   [latest release](https://github.com/markmnl/fmsg-mcp-claude/releases/latest):
+   `fmsg-darwin-arm64.mcpb` · `fmsg-darwin-x64.mcpb` · `fmsg-windows-x64.mcpb`
+2. Double-click it (or Claude Desktop → Settings → Extensions → Install
+   Extension…) and paste your fmsg Web API URL and API key when prompted.
+
+That's it — everything needed is inside the bundle.
+
+### Claude Code (Linux / macOS / Windows)
+
+1. From the [latest release](https://github.com/markmnl/fmsg-mcp-claude/releases/latest),
+   download `fmsg-mcp_<os>_<arch>` and `fmsg_<os>_<arch>`, put them somewhere
+   like `~/bin`, and `chmod +x` them.
 2. Register the server:
+
    ```sh
    claude mcp add fmsg \
      --env FMSG_API_URL=<your fmsg Web API URL> \
@@ -35,77 +40,67 @@ API key under your account.
      --env FMSG_CLI=~/bin/fmsg \
      -- ~/bin/fmsg-mcp
    ```
-3. Optional but recommended: install the [SessionStart hook](#install) so
-   shares capture your session verbatim. Then `/mcp__fmsg__share_session` and
-   `/mcp__fmsg__continue_thread` are available in any session.
 
-Sharing sends one Markdown fmsg message per prompt, pid-chained — recipients
-read it in any fmsg client, or load the thread into Claude (or any other
-agent) as context. Sending is permanent: fmsg messages cannot be recalled,
-edited, or deleted.
+3. Recommended — install the session hook so shares capture your session
+   verbatim (without it, sharing still works from what Claude retells):
 
-Design documents: [ARCHITECTURE.md](./ARCHITECTURE.md) ·
-[TOOLS.md](./TOOLS.md) · [UX_FLOWS.md](./UX_FLOWS.md) ·
-[INTERFACES.md](./INTERFACES.md) · [OPEN_QUESTIONS.md](./OPEN_QUESTIONS.md) ·
-[PHASED_PLAN.md](./PHASED_PLAN.md)
+   ```sh
+   mkdir -p ~/.claude/fmsg-mcp
+   cp hooks/session-start.sh ~/.claude/fmsg-mcp/ && chmod +x ~/.claude/fmsg-mcp/session-start.sh
+   ```
 
-## Requirements
+   and add to `~/.claude/settings.json`:
 
-- [fmsg-cli](https://github.com/markmnl/fmsg-cli) with the global `--json` flag
-  on `PATH` (or point `FMSG_CLI` at the binary). The server refuses to run
-  against builds without `--json`.
-- An fmsg sub-account API key (`fmsgk_…`), provisioned by an owner via
-  `fmsg sub-accounts create <you>_claude --cidr … --expires …`.
+   ```json
+   {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "~/.claude/fmsg-mcp/session-start.sh"}]}]}}
+   ```
 
-## Install
+### Claude Web (claude.ai)
 
-```sh
-go build -o fmsg-mcp .
+Not yet — claude.ai only connects to *remote* MCP servers, and fmsg-mcp
+currently runs locally. Use Claude Desktop or Claude Code for now; a hosted
+connector is on the roadmap. (Resuming works everywhere the server runs,
+because context is returned by the tools themselves.)
 
-# Claude Code
-claude mcp add fmsg -- ./fmsg-mcp
+## 3. Use it
 
-# SessionStart hook (verbatim share needs it to find your session transcript)
-mkdir -p ~/.claude/fmsg-mcp
-cp hooks/session-start.sh ~/.claude/fmsg-mcp/
-chmod +x ~/.claude/fmsg-mcp/session-start.sh
-# then register it under hooks.SessionStart in ~/.claude/settings.json
-```
+Just ask Claude, in any session:
 
-The shared session travels as a **plain Markdown fmsg message** — the body is
-the whole payload. Any fmsg client renders it; any agent (Claude or otherwise)
-can load the thread into context by walking the `pid` chain. The identity you
-send as is simply whatever address your configured API key grants.
+- *"Share this session with @kebbie@fmsg.io"* — you'll get a preview
+  (recipients, size, redactions) and nothing is sent until you approve.
+- *"Continue my latest fmsg thread"* — Claude loads the whole thread as
+  context and picks up where it left off.
+- *"Reply to that thread: we shipped the fix"* — sends a Markdown reply to
+  all participants.
+- *"Did my share reach everyone?"* — per-recipient delivery status.
 
-## Configuration (environment)
+In Claude Code these are also slash commands: `/mcp__fmsg__share_session`
+and `/mcp__fmsg__continue_thread`.
+
+**How shares work:** one Markdown fmsg message per prompt, chained with
+fmsg's reply links — the thread mirrors your conversation, so recipients can
+read it in any fmsg client, branch from any point, or load it into Claude or
+any other agent. Secrets (API keys, tokens, private keys) are redacted before
+sending. **Sending is permanent** — fmsg messages cannot be recalled, edited,
+or deleted — which is why every share shows a preview first.
+
+## Configuration
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `FMSG_API_URL` | `http://127.0.0.1:8000` | fmsg-webapi base URL (passed through to fmsg-cli) |
-| `FMSG_API_KEY` | — | `fmsgk_…` sub-account key (passed through to fmsg-cli); its granted address is the from address |
-| `FMSG_CLI` | `fmsg` | Path to the fmsg-cli binary |
-| `FMSG_DEFAULT_DOMAIN` | — | Convention fallback for resolving `bob` → `@bob@<domain>` |
+| `FMSG_API_URL` | `http://127.0.0.1:8000` | Your host's fmsg Web API base URL |
+| `FMSG_API_KEY` | — | `fmsgk_…` API key; its granted address is who you send as |
+| `FMSG_CLI` | `fmsg` | Path to the [fmsg-cli](https://github.com/markmnl/fmsg-cli) binary |
+| `FMSG_DEFAULT_DOMAIN` | — | Lets short names resolve: `bob` → `@bob@<domain>` |
 | `FMSG_DIRECTORY` | — | JSON file mapping short names to full addresses |
-
-## Tools
-
-| Tool | What it does |
-|---|---|
-| `share_session` | Two-phase share: preview (recipients, size, redactions) → confirm → send the transcript as a Markdown fmsg message to exactly the recipients given |
-| `continue_thread` | Walk a message's `pid` chain to the root and return every body on the lineage, in order, as context (`-1` = latest inbox message) |
-| `reply_to_thread` | Markdown reply into a thread; defaults to all participants of the replied-to message |
-| `list_threads` | Recent inbox messages (id, sender, topic, root or reply) |
-| `whoami` / `resolve_address` | Identity introspection and dry-run name resolution |
-
-`share_session` and `continue_thread` are also MCP prompts — in Claude Code:
-`/mcp__fmsg__share_session bob` and `/mcp__fmsg__continue_thread`.
 
 ## Development
 
 ```sh
+go build -o fmsg-mcp .   # needs fmsg-cli ≥ the --json/whoami release on PATH
 go test ./...
 ```
 
-End-to-end testing uses the workspace `fmsg-docker` stack
-(`start-local-stack.sh` + `seed-local-accounts.sh` at the workspace root);
-see PHASED_PLAN.md §P0.
+Design docs: [ARCHITECTURE.md](./ARCHITECTURE.md) · [TOOLS.md](./TOOLS.md) ·
+[UX_FLOWS.md](./UX_FLOWS.md) · [INTERFACES.md](./INTERFACES.md) ·
+[OPEN_QUESTIONS.md](./OPEN_QUESTIONS.md) · [PHASED_PLAN.md](./PHASED_PLAN.md)
