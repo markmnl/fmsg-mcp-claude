@@ -83,6 +83,12 @@ func main() {
 	}, s.listThreads)
 
 	mcp.AddTool(srv, &mcp.Tool{
+		Name: "delivery_status",
+		Description: "Report per-recipient delivery state for a sent fmsg message (delivered time and response code). " +
+			"Cross-host delivery is asynchronous — a pending recipient may still deliver later.",
+	}, s.deliveryStatus)
+
+	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "whoami",
 		Description: "Report the fmsg identity this server sends as (from the configured API key), plus API URL and auth type.",
 	}, s.whoami)
@@ -288,13 +294,75 @@ func (s *server) shareConfirm(ctx context.Context, token string) (*mcp.CallToolR
 		prev = id
 	}
 
-	return jsonResult(map[string]any{
+	result := map[string]any{
 		"status":      "sent",
 		"fmsg_ids":    sent,
 		"thread_head": sent[len(sent)-1],
 		"recipients":  p.recipients,
 		"note":        fmt.Sprintf("one message per prompt, pid-chained; recipients can branch from or resume up to any of them (continue_thread %d for the whole session)", sent[len(sent)-1]),
-	})
+	}
+	// Delivery snapshot of the chain head: local recipients resolve
+	// immediately; federation fills in later (delivery_status re-checks).
+	if delivery, derr := s.deliverySnapshot(ctx, sent[len(sent)-1]); derr == nil {
+		result["delivery"] = delivery
+	}
+	return jsonResult(result)
+}
+
+// deliveryEntry is one recipient's delivery state, decoded for readability.
+type deliveryEntry struct {
+	Addr          string  `json:"addr"`
+	TimeDelivered *string `json:"time_delivered"`
+	ResponseCode  *int    `json:"response_code"`
+	Meaning       string  `json:"meaning"`
+}
+
+func (s *server) deliverySnapshot(ctx context.Context, id int64) ([]deliveryEntry, error) {
+	msg, err := s.runner.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	var out []deliveryEntry
+	add := func(d cli.RecipientDelivery) {
+		out = append(out, deliveryEntry{
+			Addr: d.Addr, TimeDelivered: d.TimeDelivered, ResponseCode: d.ResponseCode,
+			Meaning: deliveryMeaning(d),
+		})
+	}
+	for _, d := range msg.ToDelivery {
+		add(d)
+	}
+	for _, b := range msg.AddTo {
+		for _, d := range b.ToDelivery {
+			add(d)
+		}
+	}
+	return out, nil
+}
+
+// deliveryMeaning decodes the response codes the webapi documents for local
+// delivery; anything else is a wire-protocol code (see fmsg SPEC §8) or still
+// pending.
+func deliveryMeaning(d cli.RecipientDelivery) string {
+	if d.ResponseCode == nil {
+		if d.TimeDelivered != nil {
+			return "delivered"
+		}
+		return "pending (cross-host delivery is asynchronous)"
+	}
+	switch *d.ResponseCode {
+	case 200:
+		return "delivered"
+	case 100:
+		return "failed: user unknown on that host"
+	case 102:
+		return "failed: user not accepting new messages"
+	default:
+		if d.TimeDelivered != nil {
+			return fmt.Sprintf("delivered (response code %d)", *d.ResponseCode)
+		}
+		return fmt.Sprintf("response code %d (see fmsg spec response codes)", *d.ResponseCode)
+	}
 }
 
 // sharePartial reports a mid-chain failure honestly: messages already sent
@@ -485,7 +553,28 @@ func (s *server) replyToThread(ctx context.Context, req *mcp.CallToolRequest, ar
 	if err := s.runner.DraftSend(ctx, id); err != nil {
 		return cleanup(err)
 	}
-	return jsonResult(map[string]any{"status": "sent", "fmsg_id": id, "recipients": recipients})
+	result := map[string]any{"status": "sent", "fmsg_id": id, "recipients": recipients}
+	if delivery, derr := s.deliverySnapshot(ctx, id); derr == nil {
+		result["delivery"] = delivery
+	}
+	return jsonResult(result)
+}
+
+// ---------------------------------------------------------------- delivery
+
+type deliveryArgs struct {
+	FmsgID int64 `json:"fmsg_id" jsonschema:"the sent message to check"`
+}
+
+func (s *server) deliveryStatus(ctx context.Context, req *mcp.CallToolRequest, args deliveryArgs) (*mcp.CallToolResult, any, error) {
+	if err := s.ensureCLI(ctx); err != nil {
+		return nil, nil, err
+	}
+	delivery, err := s.deliverySnapshot(ctx, args.FmsgID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return jsonResult(map[string]any{"fmsg_id": args.FmsgID, "delivery": delivery})
 }
 
 // ---------------------------------------------------------------- list/identity
