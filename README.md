@@ -81,8 +81,10 @@ and `/fmsg:continue_thread`.
 fmsg's reply links — the thread mirrors your conversation, so recipients can
 read it in any fmsg client, branch from any point, or load it into Claude or
 any other agent. Secrets (API keys, tokens, private keys) are redacted before
-sending. **Sending is permanent** — fmsg messages cannot be recalled, edited,
-or deleted — which is why every share shows a preview first.
+sending. **Sending is final** — messages are immutable, so they can't be
+edited or recalled, and each recipient's host keeps its own copy. (A host may
+delete messages from its own store — the protocol then rejects replies to
+them — but there is no unsend.) That's why every share shows a preview first.
 
 ## Configuration
 

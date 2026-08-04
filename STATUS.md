@@ -46,8 +46,12 @@ the global `--json` flag (also surfaces previously-dropped
    lines in the transcript JSONL), falling back to the first prompt's
    opening words.
 5. **Two-phase confirm and secret redaction are non-negotiable** because
-   sending is permanent (phrase it exactly that way — "cannot be unsent"
-   gets garbled into "unsendable" by consuming models).
+   sending is final. Precise phrasing matters: messages are immutable and
+   cannot be *edited or recalled*; each recipient's host keeps its own copy.
+   Do NOT say "cannot be deleted" (hosts may delete from their own stores —
+   replies to deleted messages are then rejected, so the thread restarts or
+   someone who still has them resends; resend tooling not built yet) and do
+   NOT say "cannot be unsent" (models garble it into "unsendable").
 6. **Snapshot semantics; live-thread convergence is v2** (user-confirmed).
    Replies already pid-thread naturally, so deferring costs no migration.
 7. Harness meta content (`isMeta` lines, `<local-command-caveat>`,
