@@ -31,7 +31,7 @@ const version = "0.2.0"
 // pendingShare is phase-1 state awaiting the user's confirmation
 // (immutability means no share leaves without an explicit preview).
 type pendingShare struct {
-	body       string
+	bodies     []string // one fmsg message per exchange, pid-chained on send
 	title      string
 	recipients []string
 	replyTo    int64
@@ -176,7 +176,14 @@ func (s *server) sharePreview(ctx context.Context, args shareArgs) (*mcp.CallToo
 		return nil, nil, err
 	}
 	hits := session.Redact(tr.Turns)
-	body := session.RenderMarkdown(tr)
+	bodies := session.RenderExchanges(tr)
+	total, largest := 0, 0
+	for _, b := range bodies {
+		total += len(b)
+		if len(b) > largest {
+			largest = len(b)
+		}
+	}
 
 	token := "st_" + randomHex(16)
 	s.mu.Lock()
@@ -186,7 +193,7 @@ func (s *server) sharePreview(ctx context.Context, args shareArgs) (*mcp.CallToo
 		}
 	}
 	s.pending[token] = &pendingShare{
-		body: body, title: tr.Title, recipients: recipients,
+		bodies: bodies, title: tr.Title, recipients: recipients,
 		replyTo: args.ReplyToFmsgID, created: time.Now(),
 	}
 	s.mu.Unlock()
@@ -198,9 +205,11 @@ func (s *server) sharePreview(ctx context.Context, args shareArgs) (*mcp.CallToo
 		"fidelity":      tr.Fidelity,
 		"title":         tr.Title,
 		"turns":         len(tr.Turns),
-		"body_bytes":    len(body),
+		"messages":      len(bodies),
+		"total_bytes":   total,
+		"largest_bytes": largest,
 		"redactions":    hits,
-		"warning":       "fmsg messages are immutable and cannot be unsent. Present this preview to the user and only re-invoke with confirm_token after their explicit approval.",
+		"warning":       "This sends one pid-chained fmsg message per user prompt. fmsg messages are immutable and cannot be unsent. Present this preview to the user and only re-invoke with confirm_token after their explicit approval.",
 		"confirm_token": token,
 	})
 }
@@ -219,43 +228,65 @@ func (s *server) shareConfirm(ctx context.Context, token string) (*mcp.CallToolR
 		return nil, nil, err
 	}
 	defer os.RemoveAll(dir)
-	bodyPath := filepath.Join(dir, "body.md")
-	if err := os.WriteFile(bodyPath, []byte(p.body), 0o600); err != nil {
-		return nil, nil, err
-	}
 
-	topic := ""
-	if p.replyTo == 0 {
-		topic = orDefault(p.title, "Claude session")
-	}
-	id, err := s.runner.DraftCreate(ctx, p.recipients[0], bodyPath, topic, p.replyTo)
-	if err != nil {
-		return nil, nil, err
-	}
-	cleanup := func(cause error) (*mcp.CallToolResult, any, error) {
-		if derr := s.runner.Del(ctx, id); derr != nil {
-			return nil, nil, fmt.Errorf("%w (and draft %d cleanup failed: %v)", cause, id, derr)
+	// Send one message per exchange, each pid-linked to the previous, so the
+	// fmsg thread mirrors the conversation. Already-sent messages cannot be
+	// unsent, so a mid-chain failure reports what did go out.
+	var sent []int64
+	prev := p.replyTo
+	for i, body := range p.bodies {
+		bodyPath := filepath.Join(dir, fmt.Sprintf("body-%d.md", i))
+		if err := os.WriteFile(bodyPath, []byte(body), 0o600); err != nil {
+			return s.sharePartial(ctx, sent, 0, err)
 		}
-		return nil, nil, cause
-	}
-
-	if len(p.recipients) > 1 {
-		if err := s.runner.UpdateRecipients(ctx, id, p.recipients); err != nil {
-			return cleanup(err)
+		topic := ""
+		if i == 0 && p.replyTo == 0 {
+			topic = orDefault(p.title, "Claude session")
 		}
-	}
-	if err := s.runner.SetType(ctx, id, "text/markdown"); err != nil {
-		return cleanup(err)
-	}
-	if err := s.runner.DraftSend(ctx, id); err != nil {
-		return cleanup(err)
+		id, err := s.runner.DraftCreate(ctx, p.recipients[0], bodyPath, topic, prev)
+		if err != nil {
+			return s.sharePartial(ctx, sent, 0, err)
+		}
+		if len(p.recipients) > 1 {
+			if err := s.runner.UpdateRecipients(ctx, id, p.recipients); err != nil {
+				return s.sharePartial(ctx, sent, id, err)
+			}
+		}
+		if err := s.runner.SetType(ctx, id, "text/markdown"); err != nil {
+			return s.sharePartial(ctx, sent, id, err)
+		}
+		if err := s.runner.DraftSend(ctx, id); err != nil {
+			return s.sharePartial(ctx, sent, id, err)
+		}
+		sent = append(sent, id)
+		prev = id
 	}
 
 	return jsonResult(map[string]any{
-		"status":     "sent",
-		"fmsg_id":    id,
-		"recipients": p.recipients,
-		"note":       fmt.Sprintf("recipients can load this thread into any agent; with fmsg-mcp: continue_thread %d", id),
+		"status":      "sent",
+		"fmsg_ids":    sent,
+		"thread_head": sent[len(sent)-1],
+		"recipients":  p.recipients,
+		"note":        fmt.Sprintf("one message per prompt, pid-chained; recipients can branch from or resume up to any of them (continue_thread %d for the whole session)", sent[len(sent)-1]),
+	})
+}
+
+// sharePartial reports a mid-chain failure honestly: messages already sent
+// stay sent; only the failed draft is cleaned up.
+func (s *server) sharePartial(ctx context.Context, sent []int64, failedDraft int64, cause error) (*mcp.CallToolResult, any, error) {
+	if failedDraft != 0 {
+		if derr := s.runner.Del(ctx, failedDraft); derr != nil {
+			cause = fmt.Errorf("%w (and draft %d cleanup failed: %v)", cause, failedDraft, derr)
+		}
+	}
+	if len(sent) == 0 {
+		return nil, nil, cause
+	}
+	return jsonResult(map[string]any{
+		"status":   "partial",
+		"fmsg_ids": sent,
+		"error":    cause.Error(),
+		"note":     fmt.Sprintf("%d of the chain's messages were sent before the failure and cannot be unsent; retry can continue the chain with reply_to_fmsg_id=%d", len(sent), sent[len(sent)-1]),
 	})
 }
 

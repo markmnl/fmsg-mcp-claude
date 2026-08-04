@@ -76,7 +76,7 @@ func TestRedact(t *testing.T) {
 	}
 }
 
-func TestRenderMarkdown(t *testing.T) {
+func TestRenderExchanges(t *testing.T) {
 	tr := &Transcript{
 		Title: "Fix auth", Surface: "claude-code", Fidelity: "verbatim",
 		SharerAddress: "@bob_claude@example.com", SharedAt: 1754280000,
@@ -86,31 +86,76 @@ func TestRenderMarkdown(t *testing.T) {
 				{Type: "text", Text: "on it"},
 				{Type: "tool_use", Name: "Bash", Input: map[string]any{"command": "go test"}},
 			}},
-			{Role: "user", Blocks: []Block{{Type: "tool_result", Text: "ok\n" + strings.Repeat("x", 5000)}}},
+			// tool_result-only user turn: belongs to the current exchange.
+			{Role: "user", Blocks: []Block{{Type: "tool_result", Text: "HEAD-part\n" + strings.Repeat("x", 5000) + "\nTAIL-part"}}},
+			{Role: "assistant", Blocks: []Block{{Type: "text", Text: "tests fail on refresh"}}},
+			// A real user prompt: starts exchange 2.
+			{Role: "user", Blocks: []Block{{Type: "text", Text: "fix it then"}}},
+			{Role: "assistant", Blocks: []Block{{Type: "text", Text: "fixed"}}},
 		},
 	}
-	body := RenderMarkdown(tr)
-	for _, want := range []string{"# Fix auth", "@bob_claude@example.com", "**User:** hello", "**Claude:** on it", "🔧 Bash", "…(truncated)"} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("missing %q in body", want)
+	bodies := RenderExchanges(tr)
+	if len(bodies) != 2 {
+		t.Fatalf("expected 2 exchanges, got %d", len(bodies))
+	}
+	first, second := bodies[0], bodies[1]
+	for _, want := range []string{"# Fix auth", "@bob_claude@example.com", "2 messages", "**User:** hello", "🔧 tool: Bash", "````tool-output", "HEAD-part", "TAIL-part", "chars truncated"} {
+		if !strings.Contains(first, want) {
+			t.Fatalf("first body missing %q", want)
 		}
 	}
-	if strings.Contains(body, strings.Repeat("x", toolResultCap+1)) {
-		t.Fatal("tool result not truncated")
+	if strings.Contains(first, strings.Repeat("x", toolResultCap+1)) {
+		t.Fatal("tool result middle not truncated")
+	}
+	if strings.Contains(first, "fix it then") {
+		t.Fatal("second prompt leaked into first exchange")
+	}
+	for _, want := range []string{"**User:** fix it then", "**Claude:** fixed"} {
+		if !strings.Contains(second, want) {
+			t.Fatalf("second body missing %q", want)
+		}
+	}
+	if strings.Contains(second, "# Fix auth") {
+		t.Fatal("provenance header should only be on the first message")
 	}
 }
 
-func TestRenderMarkdownElides(t *testing.T) {
+func TestTruncateMiddle(t *testing.T) {
+	s := "AAAA" + strings.Repeat("m", 10000) + "ZZZZ"
+	got := truncateMiddle(s, 1500)
+	if len(got) > 1500+64 {
+		t.Fatalf("over budget: %d", len(got))
+	}
+	if !strings.HasPrefix(got, "AAAA") || !strings.HasSuffix(got, "ZZZZ") {
+		t.Fatal("head/tail not preserved")
+	}
+	if !strings.Contains(got, "chars truncated") {
+		t.Fatal("cut marker missing")
+	}
+	if truncateMiddle("short", 1500) != "short" {
+		t.Fatal("short strings must pass through")
+	}
+}
+
+func TestRenderExchangesElides(t *testing.T) {
 	turns := make([]Turn, 100)
 	for i := range turns {
-		turns[i] = Turn{Role: "user", Blocks: []Block{{Type: "text", Text: strings.Repeat("y", bodyCap/40)}}}
+		// One giant exchange: only the first turn is a user prompt.
+		role := "assistant"
+		if i == 0 {
+			role = "user"
+		}
+		turns[i] = Turn{Role: role, Blocks: []Block{{Type: "text", Text: strings.Repeat("y", exchangeCap/40)}}}
 	}
 	tr := &Transcript{Title: "big", Turns: turns}
-	body := RenderMarkdown(tr)
-	if len(body) > bodyCap+4096 {
-		t.Fatalf("body over cap: %d", len(body))
+	bodies := RenderExchanges(tr)
+	if len(bodies) != 1 {
+		t.Fatalf("expected 1 exchange, got %d", len(bodies))
 	}
-	if !strings.Contains(body, "middle turns elided") {
+	if len(bodies[0]) > exchangeCap+4096 {
+		t.Fatalf("body over cap: %d", len(bodies[0]))
+	}
+	if !strings.Contains(bodies[0], "middle turns elided") {
 		t.Fatal("elision marker missing")
 	}
 }
