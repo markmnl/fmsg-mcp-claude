@@ -68,6 +68,7 @@ jobs:
             work="bundle/$label"
             mkdir -p "$work/server"
             cp "dist/fmsg-mcp_${goos}_${goarch}${ext}" "$work/server/fmsg-mcp${ext}"
+            cp img/icon.png "$work/icon.png"
             chmod +x "$work/server/"*
 
             sed -e "s/__VERSION__/${VERSION}/g" \

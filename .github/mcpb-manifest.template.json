@@ -3,6 +3,7 @@
   "name": "fmsg",
   "display_name": "fmsg session sharing",
   "version": "__VERSION__",
+  "icon": "icon.png",
   "description": "Share Claude sessions as fmsg threads, and resume any fmsg thread as Claude context.",
   "author": {
     "name": "markmnl",

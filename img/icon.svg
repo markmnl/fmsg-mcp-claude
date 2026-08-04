@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#232823"/>
+      <stop offset="1" stop-color="#161a16"/>
+    </linearGradient>
+  </defs>
+
+  <!-- background -->
+  <rect width="1024" height="1024" rx="184" fill="url(#bg)"/>
+  <rect x="10" y="10" width="1004" height="1004" rx="176" fill="none" stroke="#2f3a2f" stroke-width="4"/>
+
+  <!-- pid connectors (thread DAG): root -> two branches -->
+  <g stroke="#5ee49a" stroke-width="14" stroke-linecap="round" fill="none" opacity="0.9">
+    <path d="M 512 400 L 512 442" stroke-dasharray="2 30"/>
+    <path d="M 512 442 C 512 500, 316 470, 316 540" stroke-dasharray="2 30"/>
+    <path d="M 512 442 C 512 500, 708 470, 708 540" stroke-dasharray="2 30"/>
+    <path d="M 316 756 L 316 812" stroke-dasharray="2 30"/>
+  </g>
+
+  <!-- root message card: the Claude session -->
+  <g>
+    <rect x="262" y="160" width="500" height="240" rx="44" fill="#2b312b" stroke="#465046" stroke-width="5"/>
+    <!-- Claude spark (8-ray asterisk) -->
+    <g transform="translate(376,280)" fill="#d97757">
+      <g>
+        <rect x="-15" y="-84" width="30" height="168" rx="15"/>
+        <rect x="-15" y="-84" width="30" height="168" rx="15" transform="rotate(45)"/>
+        <rect x="-15" y="-84" width="30" height="168" rx="15" transform="rotate(90)"/>
+        <rect x="-15" y="-84" width="30" height="168" rx="15" transform="rotate(135)"/>
+      </g>
+      <circle r="26" fill="#2b312b"/>
+      <circle r="16" fill="#d97757"/>
+    </g>
+    <!-- transcript lines -->
+    <g fill="#8fa392">
+      <rect x="496" y="216" width="196" height="26" rx="13"/>
+      <rect x="496" y="268" width="152" height="26" rx="13"/>
+      <rect x="496" y="320" width="178" height="26" rx="13" fill="#5ee49a" opacity="0.85"/>
+    </g>
+  </g>
+
+  <!-- left branch: reply chain -->
+  <g>
+    <rect x="156" y="540" width="320" height="216" rx="40" fill="#233428" stroke="#3b5a44" stroke-width="5"/>
+    <g fill="#7fae8d">
+      <rect x="208" y="592" width="216" height="24" rx="12"/>
+      <rect x="208" y="640" width="168" height="24" rx="12"/>
+      <rect x="208" y="688" width="192" height="24" rx="12"/>
+    </g>
+  </g>
+  <g>
+    <rect x="156" y="812" width="320" height="88" rx="36" fill="#1d2a21" stroke="#33503c" stroke-width="5"/>
+    <g fill="#5e8a6c">
+      <rect x="208" y="844" width="180" height="24" rx="12"/>
+    </g>
+  </g>
+
+  <!-- right branch -->
+  <g>
+    <rect x="548" y="540" width="320" height="216" rx="40" fill="#233428" stroke="#3b5a44" stroke-width="5"/>
+    <g fill="#7fae8d">
+      <rect x="600" y="592" width="192" height="24" rx="12"/>
+      <rect x="600" y="640" width="216" height="24" rx="12"/>
+    </g>
+    <!-- small spark: another agent resumed here -->
+    <g transform="translate(806,700)" fill="#d97757">
+      <rect x="-8" y="-34" width="16" height="68" rx="8"/>
+      <rect x="-8" y="-34" width="16" height="68" rx="8" transform="rotate(60)"/>
+      <rect x="-8" y="-34" width="16" height="68" rx="8" transform="rotate(120)"/>
+    </g>
+  </g>
+</svg>
