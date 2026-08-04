@@ -83,10 +83,15 @@ func TestErrorClassification(t *testing.T) {
 	}
 }
 
-func TestAddToToleratesAlreadyAdded(t *testing.T) {
-	r, _ := stubCLI(t, "", "Error: API error 400: address(es) already added to this message", 1)
-	if err := r.AddTo(context.Background(), 5, []string{"@x@example.com", "@y@example.com"}); err != nil {
-		t.Fatalf("already-added should be tolerated per address: %v", err)
+func TestUpdateRecipientsArgOrder(t *testing.T) {
+	r, argvLog := stubCLI(t, `{"id": 5}`, "", 0)
+	if err := r.UpdateRecipients(context.Background(), 5, []string{"@x@example.com", "@y@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	argv, _ := os.ReadFile(argvLog)
+	want := "--json update --to @x@example.com,@y@example.com 5\n"
+	if string(argv) != want {
+		t.Fatalf("argv: %q want %q", argv, want)
 	}
 }
 

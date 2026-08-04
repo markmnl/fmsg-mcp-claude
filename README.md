@@ -33,25 +33,29 @@ chmod +x ~/.claude/fmsg-mcp/session-start.sh
 # then register it under hooks.SessionStart in ~/.claude/settings.json
 ```
 
+The shared session travels as a **plain Markdown fmsg message** — the body is
+the whole payload. Any fmsg client renders it; any agent (Claude or otherwise)
+can load the thread into context by walking the `pid` chain. The identity you
+send as is simply whatever address your configured API key grants.
+
 ## Configuration (environment)
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `FMSG_API_URL` | `http://127.0.0.1:8000` | fmsg-webapi base URL (passed through to fmsg-cli) |
-| `FMSG_API_KEY` | — | `fmsgk_…` sub-account key (passed through to fmsg-cli) |
+| `FMSG_API_KEY` | — | `fmsgk_…` sub-account key (passed through to fmsg-cli); its granted address is the from address |
 | `FMSG_CLI` | `fmsg` | Path to the fmsg-cli binary |
 | `FMSG_DEFAULT_DOMAIN` | — | Convention fallback for resolving `bob` → `@bob@<domain>` |
 | `FMSG_DIRECTORY` | — | JSON file mapping short names to full addresses |
-| `FMSG_AGENT_SUFFIX` | `_claude` | Sub-account naming convention for dual addressing |
 
 ## Tools
 
 | Tool | What it does |
 |---|---|
-| `share_session` | Two-phase share: preview (recipient, sizes, redactions) → confirm → send as Markdown body + `claude-session.json` attachment |
-| `continue_thread` | Walk a message's `pid` chain to the root, restore the deepest shared transcript + later replies as context (`-1` = latest inbox message) |
-| `reply_to_thread` | Plain Markdown reply into a thread, fanned out to all participants |
-| `list_shared_threads` | Inbox messages carrying a session transcript |
+| `share_session` | Two-phase share: preview (recipients, size, redactions) → confirm → send the transcript as a Markdown fmsg message to exactly the recipients given |
+| `continue_thread` | Walk a message's `pid` chain to the root and return every body on the lineage, in order, as context (`-1` = latest inbox message) |
+| `reply_to_thread` | Markdown reply into a thread; defaults to all participants of the replied-to message |
+| `list_threads` | Recent inbox messages (id, sender, topic, root or reply) |
 | `whoami` / `resolve_address` | Identity introspection and dry-run name resolution |
 
 `share_session` and `continue_thread` are also MCP prompts — in Claude Code:

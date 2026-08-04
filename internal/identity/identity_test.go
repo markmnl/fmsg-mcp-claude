@@ -8,7 +8,7 @@ import (
 
 func cfg(t *testing.T, dir map[string]string, domain string) Config {
 	t.Helper()
-	c := Config{DefaultDomain: domain, AgentSuffix: "_claude"}
+	c := Config{DefaultDomain: domain}
 	if dir != nil {
 		path := filepath.Join(t.TempDir(), "directory.json")
 		raw := "{"
@@ -48,18 +48,5 @@ func TestResolveChain(t *testing.T) {
 	none := cfg(t, nil, "")
 	if _, _, err := none.Resolve("dana"); err == nil {
 		t.Fatal("expected error with no directory and no default domain")
-	}
-}
-
-func TestAgentHumanRoundTrip(t *testing.T) {
-	c := Config{AgentSuffix: "_claude"}
-	if got := c.AgentFor("@bob@example.com"); got != "@bob_claude@example.com" {
-		t.Fatalf("AgentFor: %s", got)
-	}
-	if got := c.HumanFor("@bob_claude@example.com"); got != "@bob@example.com" {
-		t.Fatalf("HumanFor: %s", got)
-	}
-	if got := c.HumanFor("@bob@example.com"); got != "@bob@example.com" {
-		t.Fatalf("HumanFor passthrough: %s", got)
 	}
 }

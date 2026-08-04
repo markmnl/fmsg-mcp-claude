@@ -21,25 +21,13 @@ func IsAddress(s string) bool { return addrRe.MatchString(s) }
 type Config struct {
 	DirectoryPath string // FMSG_DIRECTORY: JSON map of short name -> address
 	DefaultDomain string // FMSG_DEFAULT_DOMAIN: convention fallback domain
-	AgentSuffix   string // FMSG_AGENT_SUFFIX, default "_claude"
-	// DualAddressing controls whether shares add the recipient's _claude
-	// sub-account (needed for the recipient to resume/reply via their own
-	// MCP server, but a dangling failed delivery when that sub-account
-	// doesn't exist). FMSG_DUAL_ADDRESSING=false disables it.
-	DualAddressing bool
 }
 
 // FromEnv builds a Config from the server environment.
 func FromEnv() Config {
-	suffix := os.Getenv("FMSG_AGENT_SUFFIX")
-	if suffix == "" {
-		suffix = "_claude"
-	}
 	return Config{
-		DirectoryPath:  os.Getenv("FMSG_DIRECTORY"),
-		DefaultDomain:  os.Getenv("FMSG_DEFAULT_DOMAIN"),
-		AgentSuffix:    suffix,
-		DualAddressing: os.Getenv("FMSG_DUAL_ADDRESSING") != "false",
+		DirectoryPath: os.Getenv("FMSG_DIRECTORY"),
+		DefaultDomain: os.Getenv("FMSG_DEFAULT_DOMAIN"),
 	}
 }
 
@@ -79,39 +67,12 @@ func (c Config) lookupDirectory(name string) (string, bool) {
 	return "", false
 }
 
-// AgentFor derives the _claude sub-account address for a human address
-// (dual addressing, ARCHITECTURE.md §5).
-func (c Config) AgentFor(humanAddr string) string {
-	rest := strings.TrimPrefix(humanAddr, "@")
-	i := strings.Index(rest, "@")
-	if i < 0 {
-		return ""
-	}
-	return "@" + rest[:i] + c.AgentSuffix + "@" + rest[i+1:]
-}
-
-// HumanFor strips the agent suffix from a sub-account address; returns the
-// input unchanged when it carries no suffix.
-func (c Config) HumanFor(agentAddr string) string {
-	rest := strings.TrimPrefix(agentAddr, "@")
-	i := strings.Index(rest, "@")
-	if i < 0 {
-		return agentAddr
-	}
-	user, domain := rest[:i], rest[i+1:]
-	if strings.HasSuffix(user, c.AgentSuffix) && len(user) > len(c.AgentSuffix) {
-		return "@" + strings.TrimSuffix(user, c.AgentSuffix) + "@" + domain
-	}
-	return agentAddr
-}
-
 // Whoami describes the CLI identity the server runs as.
 type Whoami struct {
-	Address      string `json:"address"`
-	HumanAddress string `json:"human_address,omitempty"`
-	APIURL       string `json:"api_url,omitempty"`
-	AuthType     string `json:"auth_type"`
-	ExpiresAt    string `json:"expires_at,omitempty"`
+	Address   string `json:"address"`
+	APIURL    string `json:"api_url,omitempty"`
+	AuthType  string `json:"auth_type"`
+	ExpiresAt string `json:"expires_at,omitempty"`
 }
 
 // authFile mirrors fmsg-cli's ~/.config/fmsg/auth.json (read-only).
@@ -154,9 +115,6 @@ func (c Config) ReadWhoami() (*Whoami, error) {
 	}
 	if w.AuthType == "" {
 		return nil, fmt.Errorf("not logged in: no FMSG_API_KEY and no fmsg auth.json; provision a sub-account key (see ARCHITECTURE.md §5)")
-	}
-	if w.Address != "" {
-		w.HumanAddress = c.HumanFor(w.Address)
 	}
 	return w, nil
 }

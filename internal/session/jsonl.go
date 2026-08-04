@@ -108,7 +108,7 @@ func ParseJSONL(path string) (*ParsedTranscript, error) {
 		if len(blocks) == 0 {
 			continue
 		}
-		pt.Turns = append(pt.Turns, Turn{I: len(pt.Turns), Role: line.Message.Role, Blocks: blocks})
+		pt.Turns = append(pt.Turns, Turn{Role: line.Message.Role, Blocks: blocks})
 	}
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("reading transcript: %w", err)
@@ -142,7 +142,7 @@ func parseContent(raw json.RawMessage) []Block {
 				out = append(out, Block{Type: "text", Text: jb.Text})
 			}
 		case "tool_use":
-			out = append(out, Block{Type: "tool_use", ID: jb.ID, Name: jb.Name, Input: jb.Input})
+			out = append(out, Block{Type: "tool_use", Name: jb.Name, Input: jb.Input})
 		case "tool_result":
 			out = append(out, Block{
 				Type:      "tool_result",

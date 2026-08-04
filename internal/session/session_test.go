@@ -47,6 +47,9 @@ func TestParseJSONL(t *testing.T) {
 			}
 		}
 	}
+	if pt.Turns[0].Blocks[0].Text != "The token refresh loop is 401ing" {
+		t.Fatalf("first real turn: %+v", pt.Turns[0])
+	}
 	if pt.Turns[2].Blocks[0].Type != "tool_result" || pt.Turns[2].Blocks[0].Text != "FAIL: TestRefresh" {
 		t.Fatalf("tool_result flattening: %+v", pt.Turns[2].Blocks[0])
 	}
@@ -73,35 +76,41 @@ func TestRedact(t *testing.T) {
 	}
 }
 
-func TestRenderMarkdownMarkerFirstLine(t *testing.T) {
-	env := &Envelope{
-		Format: FormatName, FormatVersion: FormatVersion,
-		Title:      "Fix auth",
-		Provenance: Provenance{Surface: "claude-code", Fidelity: "verbatim", SharerAddress: "@a_claude@example.com", SharedAt: 1754280000},
-		Turns:      []Turn{{Role: "user", Blocks: []Block{{Type: "text", Text: "hello"}}}},
+func TestRenderMarkdown(t *testing.T) {
+	tr := &Transcript{
+		Title: "Fix auth", Surface: "claude-code", Fidelity: "verbatim",
+		SharerAddress: "@bob_claude@example.com", SharedAt: 1754280000,
+		Turns: []Turn{
+			{Role: "user", Blocks: []Block{{Type: "text", Text: "hello"}}},
+			{Role: "assistant", Blocks: []Block{
+				{Type: "text", Text: "on it"},
+				{Type: "tool_use", Name: "Bash", Input: map[string]any{"command": "go test"}},
+			}},
+			{Role: "user", Blocks: []Block{{Type: "tool_result", Text: "ok\n" + strings.Repeat("x", 5000)}}},
+		},
 	}
-	body := RenderMarkdown(env, 42)
-	if !strings.HasPrefix(body, BodyMarker+"\n") {
-		t.Fatalf("body must start with the marker; got %q", body[:60])
+	body := RenderMarkdown(tr)
+	for _, want := range []string{"# Fix auth", "@bob_claude@example.com", "**User:** hello", "**Claude:** on it", "🔧 Bash", "…(truncated)"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %q in body", want)
+		}
 	}
-	if !strings.Contains(body, "claude.ai/new?q=") || !strings.Contains(body, "continue_thread%20with%20message%20id%2042") {
-		t.Fatal("open-in-claude link missing")
+	if strings.Contains(body, strings.Repeat("x", toolResultCap+1)) {
+		t.Fatal("tool result not truncated")
 	}
 }
 
-func TestEncodeGzipThreshold(t *testing.T) {
-	small := &Envelope{Format: FormatName, FormatVersion: 1}
-	name, _, err := Encode(small)
-	if err != nil || name != AttachmentName {
-		t.Fatalf("small envelope: %s %v", name, err)
+func TestRenderMarkdownElides(t *testing.T) {
+	turns := make([]Turn, 100)
+	for i := range turns {
+		turns[i] = Turn{Role: "user", Blocks: []Block{{Type: "text", Text: strings.Repeat("y", bodyCap/40)}}}
 	}
-	big := &Envelope{Format: FormatName, FormatVersion: 1,
-		Turns: []Turn{{Blocks: []Block{{Type: "text", Text: strings.Repeat("x", GzipThreshold+1)}}}}}
-	name, data, err := Encode(big)
-	if err != nil || name != AttachmentNameGz {
-		t.Fatalf("big envelope: %s %v", name, err)
+	tr := &Transcript{Title: "big", Turns: turns}
+	body := RenderMarkdown(tr)
+	if len(body) > bodyCap+4096 {
+		t.Fatalf("body over cap: %d", len(body))
 	}
-	if len(data) < 2 || data[0] != 0x1f || data[1] != 0x8b {
-		t.Fatal("gzip magic bytes missing")
+	if !strings.Contains(body, "middle turns elided") {
+		t.Fatal("elision marker missing")
 	}
 }

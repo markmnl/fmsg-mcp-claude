@@ -1,5 +1,17 @@
 # TOOLS.md — fmsg-mcp tool surface
 
+> **Design revision (v0.2):** this document describes the original design. The
+> implementation was deliberately simplified after live testing: **no
+> `claude-session.json` attachment** (the Markdown body is the sole carrier —
+> readable by any fmsg client and loadable by any agent, not just Claude),
+> **no dual addressing and no automatic `add-to`** (shares go to exactly the
+> recipients the user lists; multi-recipient uses `update --to`), and **no
+> `_claude` naming convention in the server** (the from address is whatever
+> the configured API key grants). Resume is a plain pid-walk that concatenates
+> the bodies on the lineage. Sections below about the envelope schema, dual
+> addressing, and deepest-base assembly are superseded; the two-phase confirm,
+> redaction, transcript locator, and CLI-only constraint are unchanged.
+
 Conventions common to every tool:
 
 - All CLI invocations run through the cli-runner: **always `--json`** (flags placed

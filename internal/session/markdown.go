@@ -3,41 +3,37 @@ package session
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
 )
 
-// bodyCap is the Markdown body size limit (ARCHITECTURE.md §2): middle turns
-// are elided from the rendering only — the JSON attachment stays complete.
-const bodyCap = 256 << 10
+const (
+	// bodyCap keeps the rendered body under the webapi's default 10MB data
+	// limit with headroom; beyond it, middle turns are elided (the preview
+	// reports the size so the user sees before approving).
+	bodyCap = 4 << 20
+	// toolResultCap bounds each tool result in the rendering — the body is
+	// the sole carrier, so results are included rather than collapsed, but
+	// bounded so one giant log doesn't dominate the message.
+	toolResultCap = 1500
+)
 
-// RenderMarkdown produces the human-readable message body shown by any fmsg
-// client. First line is BodyMarker so transcript-bearing messages are
-// detectable from short_text.
-func RenderMarkdown(env *Envelope, openInClaudeID int64) string {
+// RenderMarkdown produces the fmsg message body: a short provenance header
+// followed by the conversation. Any fmsg client renders it; any agent can
+// load it as context.
+func RenderMarkdown(t *Transcript) string {
 	var b strings.Builder
-	b.WriteString(BodyMarker + "\n")
-	fmt.Fprintf(&b, "# %s\n\n", orDefault(env.Title, "Claude session"))
-	fmt.Fprintf(&b, "Claude session — shared by %s · %s · %s\n",
-		orDefault(env.Provenance.SharerHumanAddress, env.Provenance.SharerAddress),
-		env.Provenance.Surface, env.Provenance.Fidelity)
-	fmt.Fprintf(&b, "%s · %d turns\n\n",
-		time.Unix(int64(env.Provenance.SharedAt), 0).UTC().Format("2006-01-02 15:04 UTC"),
-		len(env.Turns))
-	if openInClaudeID > 0 {
-		prompt := fmt.Sprintf("Use the fmsg tool continue_thread with message id %d", openInClaudeID)
-		escaped := strings.ReplaceAll(url.QueryEscape(prompt), "+", "%20")
-		fmt.Fprintf(&b, "**Open in Claude:** https://claude.ai/new?q=%s\n", escaped)
-		fmt.Fprintf(&b, "Claude Code: `/mcp__fmsg__continue_thread %d` (full transcript attached)\n\n", openInClaudeID)
-	}
-	b.WriteString("---\n\n")
+	fmt.Fprintf(&b, "# %s\n\n", orDefault(t.Title, "Claude session"))
+	fmt.Fprintf(&b, "*Claude session shared by %s · %s · %s · %s · %d turns*\n\n---\n\n",
+		t.SharerAddress, t.Surface, t.Fidelity,
+		time.Unix(int64(t.SharedAt), 0).UTC().Format("2006-01-02 15:04 UTC"),
+		len(t.Turns))
 
-	turns := renderTurns(env.Turns)
-	if len(turns) > bodyCap {
-		turns = elideMiddle(env.Turns)
+	body := renderTurns(t.Turns)
+	if len(body) > bodyCap {
+		body = elideMiddle(t.Turns)
 	}
-	b.WriteString(turns)
+	b.WriteString(body)
 	return b.String()
 }
 
@@ -58,8 +54,7 @@ func elideMiddle(turns []Turn) string {
 		for _, t := range turns[:head] {
 			renderTurn(&b, t)
 		}
-		fmt.Fprintf(&b, "\n*… %d turns elided — full transcript in the attached %s …*\n\n",
-			len(turns)-head-tail, AttachmentName)
+		fmt.Fprintf(&b, "\n*… %d middle turns elided to fit the message size limit …*\n\n", len(turns)-head-tail)
 		for _, t := range turns[len(turns)-tail:] {
 			renderTurn(&b, t)
 		}
@@ -68,7 +63,7 @@ func elideMiddle(turns []Turn) string {
 		}
 		head, tail = head/2, tail/2
 	}
-	return fmt.Sprintf("*Transcript too large to render — see the attached %s (%d turns).*\n", AttachmentName, len(turns))
+	return fmt.Sprintf("*Transcript too large to render (%d turns).*\n", len(turns))
 }
 
 func renderTurn(b *strings.Builder, t Turn) {
@@ -81,9 +76,16 @@ func renderTurn(b *strings.Builder, t Turn) {
 		case "text":
 			fmt.Fprintf(b, "**%s:** %s\n\n", label, strings.TrimSpace(blk.Text))
 		case "tool_use":
-			fmt.Fprintf(b, "> ran %s: %s\n\n", blk.Name, summarizeInput(blk.Input))
+			fmt.Fprintf(b, "> 🔧 %s: `%s`\n\n", blk.Name, summarizeInput(blk.Input))
 		case "tool_result":
-			// Collapsed in the rendering; full text is in the attachment.
+			text := strings.TrimSpace(blk.Text)
+			if text == "" {
+				continue
+			}
+			if len(text) > toolResultCap {
+				text = text[:toolResultCap] + "\n…(truncated)"
+			}
+			fmt.Fprintf(b, "```\n%s\n```\n\n", text)
 		}
 	}
 }
@@ -94,6 +96,7 @@ func summarizeInput(input any) string {
 		return ""
 	}
 	s := string(raw)
+	s = strings.ReplaceAll(s, "`", "'")
 	if len(s) > 160 {
 		s = s[:160] + "…"
 	}

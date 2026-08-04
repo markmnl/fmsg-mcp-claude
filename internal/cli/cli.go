@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -246,16 +245,6 @@ func (r *Runner) SetBodyAndType(ctx context.Context, id int64, bodyPath, mime st
 	return err
 }
 
-// Attach uploads a file to a draft, returning the server-assigned filename
-// (the server renames on collision).
-func (r *Runner) Attach(ctx context.Context, id int64, filePath string) (string, error) {
-	res, err := decode[struct {
-		Filename string `json:"filename"`
-		Size     int64  `json:"size"`
-	}](r, ctx, "attach", strconv.FormatInt(id, 10), filePath)
-	return res.Filename, err
-}
-
 // DraftSend sends a draft.
 func (r *Runner) DraftSend(ctx context.Context, id int64) error {
 	_, err := decode[struct {
@@ -265,23 +254,10 @@ func (r *Runner) DraftSend(ctx context.Context, id int64) error {
 	return err
 }
 
-// AddTo adds recipients to a sent message, one call per address so that a 400
-// "already added" on one address doesn't block the others.
-func (r *Runner) AddTo(ctx context.Context, id int64, recipients []string) error {
-	for _, addr := range recipients {
-		_, err := decode[struct {
-			ID    int64 `json:"id"`
-			Added int   `json:"added"`
-		}](r, ctx, "add-to", strconv.FormatInt(id, 10), addr)
-		var cerr *Error
-		if errors.As(err, &cerr) && cerr.Status == 400 && strings.Contains(cerr.Detail, "already added") {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+// UpdateRecipients replaces a draft's recipient list (`update --to a,b,c`).
+func (r *Runner) UpdateRecipients(ctx context.Context, id int64, recipients []string) error {
+	_, err := decode[idResult](r, ctx, "update", "--to", strings.Join(recipients, ","), strconv.FormatInt(id, 10))
+	return err
 }
 
 // Del deletes a draft (cleanup after a failed share sequence).
@@ -293,10 +269,4 @@ func (r *Runner) Del(ctx context.Context, id int64) error {
 // GetData returns a message's raw body bytes (stdout mode is unaffected by --json).
 func (r *Runner) GetData(ctx context.Context, id int64) ([]byte, error) {
 	return r.run(ctx, "get-data", strconv.FormatInt(id, 10))
-}
-
-// GetAttach downloads an attachment to outPath.
-func (r *Runner) GetAttach(ctx context.Context, id int64, filename, outPath string) error {
-	_, err := r.run(ctx, "get-attach", strconv.FormatInt(id, 10), filename, outPath)
-	return err
 }
