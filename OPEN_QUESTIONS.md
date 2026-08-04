@@ -124,3 +124,14 @@ Same-host MVP is unaffected (webapi 10/10/20 MB budget; shared row IDs).
 14. **Address lookup surface** — a client-facing existence/directory query backed by
     fmsgid, so "bob" → `@bob@example.com` resolution can be real instead of a
     shipped JSON file.
+15. **PUT/update contract mismatch (found in live testing):** fmsg-webapi's
+    `PUT /fmsg/:id` is full-replacement, but fmsg-cli's `update` sends only the
+    provided fields and documents PATCH semantics ("Only provided fields are
+    updated"). Any partial update silently wipes recipients, `pid`, and `topic`.
+    Fix one side: make the webapi PUT merge, or make the CLI update
+    read-modify-write. (fmsg-mcp works around it by restating every field.)
+16. **`PUT /fmsg/:id` accepts an empty `to`** — a draft can be updated into
+    having zero recipients (webapi `messages.go` Update lacks the check Create
+    has).
+17. **`POST /fmsg/:id/send` accepts a draft with zero recipients** — the
+    recipientless messages from #15 sent without any validation error.
