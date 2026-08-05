@@ -12,7 +12,8 @@ usable by any agent.
 * Search and visualise prior conversations in an intuitive UI
 <br/>
 <br/>
-All backed by the fmsg threading message protocol
+All backed by durable fmsg threads.
+<br/>
 <br/>
 
 ## 1. Get an fmsg address + API key
