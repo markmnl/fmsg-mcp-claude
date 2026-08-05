@@ -116,7 +116,10 @@ Same-host MVP is unaffected (webapi 10/10/20 MB budget; shared row IDs).
 11. **Children/replies + ancestors endpoints** (`GET /fmsg/{id}/replies`,
     `/fmsg/{id}/ancestors`) — thread reconstruction is currently impossible
     (children) or O(depth) (ancestors); the recursive CTE already exists internally
-    for push.
+    for push. **Partially addressed (2026-08-05):** `GET /fmsg/:id/thread`
+    (fmsg-webapi branch `thread-text`) returns the ancestor lineage as plain
+    text, root first — built for UI "copy thread" and feeding agents. A
+    JSON ancestors route and a children/replies route remain open.
 12. ~~Raise/document `FMSG_MAX_MSG_SIZE`~~ **Dropped (2026-08-05, user
     decision): it is operator config — setups specify whatever they want.**
 13. **Inbox filtering** — `GET /fmsg?since=&from=&topic=` (and/or a
