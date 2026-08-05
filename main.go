@@ -172,7 +172,7 @@ type serializedTurn struct {
 }
 
 type shareArgs struct {
-	Recipients    []string         `json:"recipients" jsonschema:"recipient fmsg addresses (@user@example.com) or short names to resolve; list every address the thread should reach"`
+	Recipients    []string         `json:"recipients,omitempty" jsonschema:"recipient fmsg addresses (@user@example.com) or short names to resolve; list every address the thread should reach. Required on the preview call; not needed when confirming with confirm_token"`
 	Title         string           `json:"title,omitempty" jsonschema:"thread topic; defaults to the session's own summary. On a root share this becomes the immutable fmsg topic"`
 	Note          string           `json:"note,omitempty" jsonschema:"optional Markdown intro rendered above the transcript"`
 	ReplyToFmsgID int64            `json:"reply_to_fmsg_id,omitempty" jsonschema:"share as a reply into an existing thread instead of starting a new one"`
