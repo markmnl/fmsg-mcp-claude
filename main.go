@@ -367,10 +367,17 @@ func (s *server) shareConfirm(ctx context.Context, token string) (*mcp.CallToolR
 		"recipients":  p.recipients,
 		"note":        note,
 	}
-	// Delivery snapshot of the chain head: local recipients resolve
-	// immediately; federation fills in later (delivery_status re-checks).
+	// The chain pacing already confirmed every message but the last reached a
+	// terminal state; wait briefly on the final one too, so the result usually
+	// reports delivered/failed per recipient rather than "pending". A timeout
+	// here is not a failure — delivery is async and delivery_status re-checks.
+	stillPending := s.waitDelivered(ctx, sent[len(sent)-1], 60*time.Second)
 	if delivery, derr := s.deliverySnapshot(ctx, sent[len(sent)-1]); derr == nil {
 		result["delivery"] = delivery
+	}
+	if len(stillPending) > 0 {
+		result["delivery_pending"] = stillPending
+		result["delivery_note"] = "these recipients had not confirmed delivery within 60s; that can be normal for slow hosts — check later with delivery_status"
 	}
 	return jsonResult(result)
 }

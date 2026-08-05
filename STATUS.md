@@ -123,7 +123,12 @@ the global `--json` flag (also surfaces previously-dropped
    hash exposure (#3).
 6. **v2 features**: live-thread pull/watch tool; hosted remote-MCP variant
    so claude.ai (Web) works — currently a README roadmap promise; the
-   Go-package refactor replacing the subprocess + embed (#10).
+   Go-package refactor replacing the subprocess + embed (#10); async
+   delivery outcomes surfaced at the next prompt via a UserPromptSubmit
+   hook (share writes pending ids, hook injects delivered/failed line) —
+   for now share_session waits up to 60s on the chain's final message so
+   most results carry terminal per-recipient state (MCP stdio cannot push
+   into the conversation unprompted).
 7. **Housekeeping**: ARCHITECTURE.md and TOOLS.md still describe v0.1 under
    supersession banners — rewrite to the shipped design; prune
    OPEN_QUESTIONS; keep watching assumption A3 (Claude Code JSONL schema
