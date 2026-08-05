@@ -50,8 +50,11 @@ jobs:
             (cd /tmp/fmsg-cli && CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
               go build -trimpath -ldflags "-s -w" -o "$GITHUB_WORKSPACE/dist/fmsg_${goos}_${goarch}${ext}" .)
             cp "dist/fmsg_${goos}_${goarch}${ext}" internal/cli/embedded/fmsg-bin
+            # Stamp the release tag (sans leading v) as the reported version.
             CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-              go build -tags embedcli -trimpath -ldflags "-s -w" -o "dist/fmsg-mcp_${goos}_${goarch}${ext}" .
+              go build -tags embedcli -trimpath \
+              -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" \
+              -o "dist/fmsg-mcp_${goos}_${goarch}${ext}" .
           done
           ls -l dist
 

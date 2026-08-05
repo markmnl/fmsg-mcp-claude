@@ -27,7 +27,9 @@ import (
 	"github.com/markmnl/fmsg-mcp-claude/internal/thread"
 )
 
-const version = "0.2.0"
+// version is stamped by the release workflow (-X main.version=<tag>);
+// "dev" identifies local builds.
+var version = "dev"
 
 // pendingShare is phase-1 state awaiting the user's confirmation
 // (immutability means no share leaves without an explicit preview).

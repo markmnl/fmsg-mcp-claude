@@ -104,24 +104,26 @@ the global `--json` flag (also surfaces previously-dropped
 
 ## Remaining work, in priority order
 
-1. **Cut `v0.2.0`** (push, tag, release) and validate the artifacts for
-   real: install a `.mcpb` on actual Claude Desktop; `claude mcp add` a
-   downloaded binary.
-2. **Live-validate resume** — the core promise is untested: second persona
+*(Done 2026-08-05: repo pushed to github.com/markmnl/fmsg-mcp-claude,
+releases v0.2.0–v0.3.1 cut with full artifacts; fmsgd + webapi fix branches
+merged and deployed to both live stacks.)*
+
+1. **Live-validate resume** — the core promise is untested: second persona
    runs `continue_thread`, replies from the UI, first persona resumes again.
-   Also test cross-host resume from the fmsg.io side.
-3. **Fix webapi bugs #15–17** (PUT merge-or-validate; reject empty `to` on
+   Also test cross-host resume from the fmsg.io side, the incremental
+   re-share, and a `.mcpb` install on actual Claude Desktop.
+2. **Fix webapi bugs #15–17** (PUT merge-or-validate; reject empty `to` on
    PUT; reject send with zero recipients) — they corrupt data for every
    client, not just this server.
-4. **CI**: build+test workflow on PR; e2e suite against the workspace
+3. **CI**: build+test workflow on PR; e2e suite against the workspace
    `fmsg-docker` stack (share→resume→reply, two seeded accounts) — the
    original P0 exit criterion, never run.
-5. **Upstream by leverage**: raise fmsgd's 10 KiB federation default (#12);
+4. **Upstream by leverage**: raise fmsgd's 10 KiB federation default (#12);
    `fmsg watch` over the WebSocket (#8 — prerequisite for v2 live threads);
    thread/children endpoints (#2, #11); distinct exit codes (#5);
    `get-attach` URL-escape bug (#6); address lookup via fmsgid (#14);
    hash exposure (#3).
-6. **v2 features**: live-thread pull/watch tool; hosted remote-MCP variant
+5. **v2 features**: live-thread pull/watch tool; hosted remote-MCP variant
    so claude.ai (Web) works — currently a README roadmap promise; the
    Go-package refactor replacing the subprocess + embed (#10); async
    delivery outcomes surfaced at the next prompt via a UserPromptSubmit
@@ -129,7 +131,7 @@ the global `--json` flag (also surfaces previously-dropped
    for now share_session waits up to 60s on the chain's final message so
    most results carry terminal per-recipient state (MCP stdio cannot push
    into the conversation unprompted).
-7. **Housekeeping**: ARCHITECTURE.md and TOOLS.md still describe v0.1 under
+6. **Housekeeping**: ARCHITECTURE.md and TOOLS.md still describe v0.1 under
    supersession banners — rewrite to the shipped design; prune
    OPEN_QUESTIONS; keep watching assumption A3 (Claude Code JSONL schema
    drift — the parser is deliberately tolerant).
