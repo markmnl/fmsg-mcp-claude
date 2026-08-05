@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: gofmt
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then
+            echo "unformatted files:" && echo "$out" && exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./...
+
+      # The release builds with the fmsg CLI embedded; exercise that path on
+      # every PR so embed/CLI breakage surfaces here, not at release time.
+      - name: release-shaped build (embedded CLI)
+        run: |
+          git clone --depth 1 https://github.com/markmnl/fmsg-cli.git /tmp/fmsg-cli
+          (cd /tmp/fmsg-cli && go build -o "$GITHUB_WORKSPACE/internal/cli/embedded/fmsg-bin" .)
+          go build -tags embedcli .
