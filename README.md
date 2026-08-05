@@ -20,12 +20,28 @@ usable by any agent.
 
 You send as an fmsg address, authenticated by an API key (`fmsgk_…`):
 
-- **No fmsg host?** Create a free account at **[fmsg.io](https://fmsg.io)**
-  and generate an API key under your account.
+- **No fmsg host?** Create a free account at **[fmsg.io](https://fmsg.io)**,
+  then go to **Admin → Add Agent** — copy the **API URL** and **API key**
+  shown there.
 - **Self-hosting?** Run your own host with
   [fmsg-docker](https://github.com/markmnl/fmsg-docker).
 
 ## 2. Install
+
+### Fastest: ask Claude to do it
+
+Paste this into Claude (Claude Code, or any Claude that can run commands on
+your machine), with your details filled in:
+
+> Install the fmsg MCP server from
+> https://github.com/markmnl/fmsg-mcp-claude — follow its README: download
+> the right binary for my platform from the latest GitHub release, install
+> it, register it with Claude, and set up the session hook. My fmsg API URL
+> is `<paste API URL>` and my API key is `<paste fmsgk_… key>`. When done,
+> verify by asking fmsg who I am.
+
+On Claude Desktop, Claude can't install its own extensions — use the
+`.mcpb` bundle below instead (it's two clicks).
 
 ### Claude Desktop (macOS / Windows)
 
