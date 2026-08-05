@@ -118,9 +118,15 @@ merged and deployed to both live stacks.)*
    reclassified by-design) and fmsg-cli `update-merge-semantics` (fetch-and-
    merge before the full-replacement PUT; #15 fixed). fmsg-mcp keeps
    `UpdateFull` — correct under either contract.
-3. **CI**: build+test workflow on PR; e2e suite against the workspace
-   `fmsg-docker` stack (share→resume→reply, two seeded accounts) — the
-   original P0 exit criterion, never run.
+3. **CI (in progress 2026-08-05):** `.github/workflows/ci.yml` runs
+   gofmt/vet/test plus the release-shaped `-tags embedcli` build on every
+   PR/push. The e2e lives in **fmsg-docker** as integration test
+   `008-claude-mcp-share-resume-reply.sh` (user decision: that harness
+   already owns stack+DB+seeding): drives the real fmsg-mcp binary over
+   stdio JSON-RPC — share (preview+confirm) → cross-instance resume →
+   reply → incremental re-share asserting only the delta is sent. The
+   runner builds fmsg-mcp from `FMSG_MCP_REF` (default main) like it does
+   fmsg-cli. Await first green run.
 4. **Upstream by leverage**: `fmsg watch` over the WebSocket (#8 — prerequisite for v2 live threads);
    thread/children endpoints (#2, #11); distinct exit codes (#5);
    `get-attach` URL-escape bug (#6); address lookup via fmsgid (#14);
