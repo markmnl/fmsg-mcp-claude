@@ -121,8 +121,7 @@ merged and deployed to both live stacks.)*
 3. **CI**: build+test workflow on PR; e2e suite against the workspace
    `fmsg-docker` stack (share→resume→reply, two seeded accounts) — the
    original P0 exit criterion, never run.
-4. **Upstream by leverage**: raise fmsgd's 10 KiB federation default (#12);
-   `fmsg watch` over the WebSocket (#8 — prerequisite for v2 live threads);
+4. **Upstream by leverage**: `fmsg watch` over the WebSocket (#8 — prerequisite for v2 live threads);
    thread/children endpoints (#2, #11); distinct exit codes (#5);
    `get-attach` URL-escape bug (#6); address lookup via fmsgid (#14);
    hash exposure (#3).

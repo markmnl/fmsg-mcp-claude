@@ -23,9 +23,14 @@ const (
 // user prompt. Sharing sends one fmsg message per exchange, pid-chained, so
 // the fmsg thread mirrors the conversation and receivers can branch from or
 // resume up to any prompt. The first body carries the provenance header.
-func RenderExchanges(t *Transcript) []string {
+//
+// contents holds each exchange's rendering WITHOUT the provenance header —
+// the header embeds the share time and running totals, so bodies differ
+// between shares of identical conversation content. Incremental re-share
+// (sharestate) must hash contents, never bodies, or the prefix would never
+// match a previous share.
+func RenderExchanges(t *Transcript) (bodies, contents []string) {
 	groups := splitExchanges(t.Turns)
-	bodies := make([]string, 0, len(groups))
 	for i, g := range groups {
 		var b strings.Builder
 		if i == 0 {
@@ -41,8 +46,9 @@ func RenderExchanges(t *Transcript) []string {
 		}
 		b.WriteString(body)
 		bodies = append(bodies, b.String())
+		contents = append(contents, body)
 	}
-	return bodies
+	return bodies, contents
 }
 
 // splitExchanges starts a new group at every user turn that carries actual

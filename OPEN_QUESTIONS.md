@@ -52,9 +52,11 @@ existing WebSocket), **not** a data-model change — no migration risk in deferr
 
 Two independent upstream blockers, either fatal alone today:
 
-1. **fmsgd federation size default is 10 KiB** (`FMSG_MAX_MSG_SIZE`,
-   `fmsgd/cmd/fmsgd/host.go:166`), unoverridden in fmsg-docker/deploy-scripts — any
-   realistic transcript bounces with fmsg code 4.
+1. **fmsgd federation size limit** (`FMSG_MAX_MSG_SIZE`, default 10 KiB):
+   an operator config choice, not an upstream change to pursue (user
+   decision 2026-08-05) — hosts that want to accept transcripts set it
+   accordingly; a host that keeps it low rejects with fmsg code 4, which
+   `delivery_status` surfaces.
 2. **No stable cross-host message reference:** row IDs are per-host; the wire
    SHA-256 exists in the store (`msg.sha256`) but no endpoint or CLI output exposes
    it, and there's no get-by-hash.
@@ -115,9 +117,8 @@ Same-host MVP is unaffected (webapi 10/10/20 MB budget; shared row IDs).
     `/fmsg/{id}/ancestors`) — thread reconstruction is currently impossible
     (children) or O(depth) (ancestors); the recursive CTE already exists internally
     for push.
-12. **Raise/document `FMSG_MAX_MSG_SIZE`** in fmsgd and set a sane value in
-    fmsg-docker/deploy configs — 10 KiB default silently blocks legitimate
-    federation traffic far below the webapi's own 20 MB acceptance.
+12. ~~Raise/document `FMSG_MAX_MSG_SIZE`~~ **Dropped (2026-08-05, user
+    decision): it is operator config — setups specify whatever they want.**
 13. **Inbox filtering** — `GET /fmsg?since=&from=&topic=` (and/or a
     content-marker/type filter) so clients needn't page + fetch to find relevant
     messages.

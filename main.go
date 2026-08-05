@@ -220,20 +220,22 @@ func (s *server) sharePreview(ctx context.Context, args shareArgs) (*mcp.CallToo
 		return nil, nil, err
 	}
 	hits := session.Redact(tr.Turns)
-	bodies := session.RenderExchanges(tr)
+	// contents (header-free) is the hash basis for incremental matching; the
+	// first body's provenance header changes with every share.
+	bodies, contents := session.RenderExchanges(tr)
 
 	// Incremental share: when this session was already shared to the same
 	// audience and its content still extends what was sent, chain only the
 	// new exchanges onto the existing thread instead of resending everything.
 	mode := "new_thread"
 	sendBodies := bodies
-	allHashes := sharestate.HashBodies(bodies)
+	allHashes := sharestate.HashBodies(contents)
 	baseCount := 0
 	replyTo := args.ReplyToFmsgID
 	var threadRoot int64
 	if replyTo == 0 && tr.SessionID != "" {
 		if st, serr := sharestate.Load(tr.SessionID); serr == nil && st != nil {
-			delta, extends := sharestate.Delta(st.ExchangeHashes, bodies)
+			delta, extends := sharestate.Delta(st.ExchangeHashes, contents)
 			switch {
 			case !extends:
 				mode = "new_thread_session_diverged"
@@ -247,8 +249,10 @@ func (s *server) sharePreview(ctx context.Context, args shareArgs) (*mcp.CallToo
 				})
 			default:
 				mode = "continue_shared_thread"
-				sendBodies = delta
 				baseCount = len(st.ExchangeHashes)
+				// delta is header-free content; send the real bodies for
+				// the same exchanges (non-first bodies carry no header).
+				sendBodies = bodies[baseCount:]
 				replyTo = st.LastFmsgID
 				threadRoot = st.ThreadRoot
 			}

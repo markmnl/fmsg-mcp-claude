@@ -97,9 +97,9 @@ func TestRenderExchanges(t *testing.T) {
 			{Role: "assistant", Blocks: []Block{{Type: "text", Text: "fixed"}}},
 		},
 	}
-	bodies := RenderExchanges(tr)
-	if len(bodies) != 2 {
-		t.Fatalf("expected 2 exchanges, got %d", len(bodies))
+	bodies, contents := RenderExchanges(tr)
+	if len(bodies) != 2 || len(contents) != 2 {
+		t.Fatalf("expected 2 exchanges, got %d bodies / %d contents", len(bodies), len(contents))
 	}
 	first, second := bodies[0], bodies[1]
 	for _, want := range []string{"# Fix auth", "@bob_claude@example.com", "2 messages", "**User:** hello", "🔧 tool: Bash", "````tool-output", "HEAD-part", "TAIL-part", "chars truncated"} {
@@ -120,6 +120,26 @@ func TestRenderExchanges(t *testing.T) {
 	}
 	if strings.Contains(second, "# Fix auth") {
 		t.Fatal("provenance header should only be on the first message")
+	}
+
+	// contents must be the hash-stable basis for incremental re-share: no
+	// provenance header (it embeds share time and running totals), and
+	// identical for an exchange regardless of what was rendered after it.
+	if strings.Contains(contents[0], "# Fix auth") || strings.Contains(contents[0], "2 messages") {
+		t.Fatal("contents must not carry the provenance header")
+	}
+	if contents[1] != second {
+		t.Fatal("non-first content should equal its body (no header to strip)")
+	}
+	longer := *tr
+	longer.SharedAt = 1754280000 + 9999 // a later share...
+	longer.Turns = append(append([]Turn{}, tr.Turns...),
+		Turn{Role: "user", Blocks: []Block{{Type: "text", Text: "one more thing"}}},
+		Turn{Role: "assistant", Blocks: []Block{{Type: "text", Text: "done"}}},
+	) // ...of a session that grew
+	_, contents2 := RenderExchanges(&longer)
+	if len(contents2) != 3 || contents2[0] != contents[0] || contents2[1] != contents[1] {
+		t.Fatal("existing exchanges' contents must be byte-identical across shares, or incremental re-share never matches")
 	}
 }
 
@@ -151,7 +171,7 @@ func TestRenderExchangesElides(t *testing.T) {
 		turns[i] = Turn{Role: role, Blocks: []Block{{Type: "text", Text: strings.Repeat("y", exchangeCap/40)}}}
 	}
 	tr := &Transcript{Title: "big", Turns: turns}
-	bodies := RenderExchanges(tr)
+	bodies, _ := RenderExchanges(tr)
 	if len(bodies) != 1 {
 		t.Fatalf("expected 1 exchange, got %d", len(bodies))
 	}
