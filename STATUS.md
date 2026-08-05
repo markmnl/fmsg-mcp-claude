@@ -108,13 +108,16 @@ the global `--json` flag (also surfaces previously-dropped
 releases v0.2.0–v0.3.1 cut with full artifacts; fmsgd + webapi fix branches
 merged and deployed to both live stacks.)*
 
-1. **Live-validate resume** — the core promise is untested: second persona
-   runs `continue_thread`, replies from the UI, first persona resumes again.
-   Also test cross-host resume from the fmsg.io side, the incremental
-   re-share, and a `.mcpb` install on actual Claude Desktop.
-2. **Fix webapi bugs #15–17** (PUT merge-or-validate; reject empty `to` on
-   PUT; reject send with zero recipients) — they corrupt data for every
-   client, not just this server.
+1. ~~**Live-validate resume**~~ **DONE (2026-08-05, user-confirmed):** the
+   full loop validated live — cross-host chain share (hash fix holds),
+   incremental re-share, resume via `continue_thread`, reply.
+2. **Merge + deploy the #15–17 resolution (2026-08-05, user decision:
+   drafts are a free-form workspace; *send* is the validation gate).**
+   Implemented on branches: fmsg-webapi `validate-at-send` (400 on send for
+   no recipients / bad address / no type / bad version; #17 fixed, #16
+   reclassified by-design) and fmsg-cli `update-merge-semantics` (fetch-and-
+   merge before the full-replacement PUT; #15 fixed). fmsg-mcp keeps
+   `UpdateFull` — correct under either contract.
 3. **CI**: build+test workflow on PR; e2e suite against the workspace
    `fmsg-docker` stack (share→resume→reply, two seeded accounts) — the
    original P0 exit criterion, never run.

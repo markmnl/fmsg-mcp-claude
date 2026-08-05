@@ -128,13 +128,20 @@ Same-host MVP is unaffected (webapi 10/10/20 MB budget; shared row IDs).
     `PUT /fmsg/:id` is full-replacement, but fmsg-cli's `update` sends only the
     provided fields and documents PATCH semantics ("Only provided fields are
     updated"). Any partial update silently wipes recipients, `pid`, and `topic`.
-    Fix one side: make the webapi PUT merge, or make the CLI update
-    read-modify-write. (fmsg-mcp works around it by restating every field.)
-16. **`PUT /fmsg/:id` accepts an empty `to`** — a draft can be updated into
-    having zero recipients (webapi `messages.go` Update lacks the check Create
-    has).
+    **Resolved (2026-08-05):** PUT stays full-replacement by design; fmsg-cli
+    `update` now fetches the current draft and merges before the PUT (branch
+    `update-merge-semantics`), making its documented semantics true. fmsg-mcp
+    keeps `UpdateFull` (correct under either contract).
+16. **`PUT /fmsg/:id` accepts an empty `to`** — ~~a draft can be updated into
+    having zero recipients~~. **Reclassified by design (2026-08-05, user
+    decision): drafts are a workspace and may be incomplete in any way;
+    validity is enforced at send (see #17).**
 17. **`POST /fmsg/:id/send` accepts a draft with zero recipients** — the
     recipientless messages from #15 sent without any validation error.
+    **Fixed (2026-08-05):** send is now the validation gate — fmsg-webapi
+    branch `validate-at-send` refuses with 400 (listing every problem) when
+    the draft has no recipients, a malformed recipient address, no type, or
+    an unsupported version.
 18. **Cross-host replies to own sent messages always bounced with code 6
     (found live 2026-08-05; root cause identified same day):** initially
     diagnosed as concurrent out-of-order delivery, but pacing sends on
