@@ -1,6 +1,6 @@
 # STATUS — where this project is and how it got here
 
-*Last updated: 2026-08-04. This is the orientation document: read it first.*
+*Last updated: 2026-08-05. This is the orientation document: read it first.*
 
 ## What exists and works
 
@@ -41,7 +41,7 @@ the global `--json` flag (also surfaces previously-dropped
    any prompt, and later shares continue the chain via `reply_to_fmsg_id`.
    Compression is the host's job. Tool activity renders as `> 🔧 tool:` lines
    with ````tool-output` fences so any consumer can mechanically skip it;
-   tool results keep head+tail (1500-char budget, middle cut).
+   tool results keep head+tail (750-char budget, middle cut).
 4. **Default topic = Claude Code's own session summary** (the `summary`
    lines in the transcript JSONL), falling back to the first prompt's
    opening words.
