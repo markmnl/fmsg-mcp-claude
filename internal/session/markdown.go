@@ -15,7 +15,7 @@ const (
 	// toolResultCap bounds each tool result in the rendering: head and tail
 	// are kept with the middle cut, since the start (what ran) and the end
 	// (the outcome/error) carry most of the signal.
-	toolResultCap = 1500
+	toolResultCap = 750
 )
 
 // RenderExchanges splits the transcript at user prompts and renders one
