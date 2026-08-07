@@ -183,10 +183,14 @@ merged and deployed to both live stacks.)*
    Done: tool annotations (title + readOnly/destructive hints, required by
    review), manifest metadata (homepage/support/keywords/long_description/
    `privacy_policies`), PRIVACY.md, release workflow signs+verifies bundles
-   (`MCPB_SIGNING_*` secrets, self-signed fallback) and publishes only
-   .mcpb bundles + fmsg-mcp binaries (standalone fmsg-cli artifacts
-   dropped); LICENSE added (MIT, user decision 2026-08-07) and stamped in
-   the manifest; user has a reviewer test account ready. Remaining: cut a
+   (`MCPB_SIGNING_*` secrets; **no self-signed fallback** — `mcpb verify`
+   checks the chain against the OS trust store, so self-signed always
+   verifies as "not signed"; without cert secrets the step skips and
+   bundles publish unsigned, which is fine: signing is not a submission
+   requirement) and publishes only .mcpb bundles + fmsg-mcp binaries
+   (standalone fmsg-cli artifacts dropped); LICENSE added (MIT, user
+   decision 2026-08-07) and stamped in the manifest; user has a reviewer
+   test account ready. Remaining: cut a
    release so signed bundles + PRIVACY.md URL are live, then submit at
    https://clau.de/desktop-extention-submission. Separately, OS-level:
    Apple Developer ID notarization of the embedded binary (Gatekeeper) and

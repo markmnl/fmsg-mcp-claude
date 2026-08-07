@@ -54,9 +54,11 @@ jobs:
             (cd /tmp/fmsg-cli && CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
               go build -trimpath -ldflags "-s -w" -o "$GITHUB_WORKSPACE/internal/cli/embedded/fmsg-bin" .)
             # Stamp the release tag (sans leading v) as the reported version.
+            # $VERSION, not GITHUB_REF_NAME: on workflow_dispatch re-runs the
+            # ref is the branch, which would stamp "main" as the version.
             CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
               go build -tags embedcli -trimpath \
-              -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" \
+              -ldflags "-s -w -X main.version=${VERSION}" \
               -o "dist/fmsg-mcp_${goos}_${goarch}${ext}" .
           done
           ls -l dist
@@ -90,9 +92,12 @@ jobs:
         with:
           node-version: 22
 
-      # Sign every bundle: with the org's code-signing certificate when the
-      # MCPB_SIGNING_* secrets are configured, else self-signed so the bundle
-      # still carries an integrity signature. Verification runs either way.
+      # Sign bundles only when the MCPB_SIGNING_* secrets hold a CA-issued
+      # code-signing certificate. There is no self-signed fallback on purpose:
+      # `mcpb verify` validates the chain against the OS trust store, so a
+      # self-signed signature always verifies as "not signed" and fails the
+      # build. Unsigned bundles are fine — directory listing, not signing, is
+      # what removes Claude Desktop's install warnings.
       - name: Sign and verify Claude Desktop bundles
         env:
           MCPB_SIGNING_CERT: ${{ secrets.MCPB_SIGNING_CERT }}
@@ -100,20 +105,18 @@ jobs:
           MCPB_SIGNING_INTERMEDIATE: ${{ secrets.MCPB_SIGNING_INTERMEDIATE }}
         run: |
           set -euo pipefail
+          if [ -z "${MCPB_SIGNING_CERT:-}" ]; then
+            echo "MCPB_SIGNING_CERT not configured — publishing unsigned bundles"
+            exit 0
+          fi
           npm install -g @anthropic-ai/mcpb
-          sign_args=(--self-signed)
-          if [ -n "${MCPB_SIGNING_CERT:-}" ]; then
-            keydir=$(mktemp -d)
-            printf '%s' "$MCPB_SIGNING_CERT" > "$keydir/cert.pem"
-            printf '%s' "$MCPB_SIGNING_KEY" > "$keydir/key.pem"
-            sign_args=(--cert "$keydir/cert.pem" --key "$keydir/key.pem")
-            if [ -n "${MCPB_SIGNING_INTERMEDIATE:-}" ]; then
-              printf '%s' "$MCPB_SIGNING_INTERMEDIATE" > "$keydir/intermediate.pem"
-              sign_args+=(--intermediate "$keydir/intermediate.pem")
-            fi
-            echo "Signing with configured certificate"
-          else
-            echo "MCPB_SIGNING_CERT not configured — signing self-signed"
+          keydir=$(mktemp -d)
+          printf '%s' "$MCPB_SIGNING_CERT" > "$keydir/cert.pem"
+          printf '%s' "$MCPB_SIGNING_KEY" > "$keydir/key.pem"
+          sign_args=(--cert "$keydir/cert.pem" --key "$keydir/key.pem")
+          if [ -n "${MCPB_SIGNING_INTERMEDIATE:-}" ]; then
+            printf '%s' "$MCPB_SIGNING_INTERMEDIATE" > "$keydir/intermediate.pem"
+            sign_args+=(--intermediate "$keydir/intermediate.pem")
           fi
           for b in dist/*.mcpb; do
             mcpb sign "$b" "${sign_args[@]}"
