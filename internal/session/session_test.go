@@ -38,14 +38,17 @@ func TestParseJSONL(t *testing.T) {
 	if pt.Summary != "Fixing auth" {
 		t.Fatalf("summary: got %q want %q", pt.Summary, "Fixing auth")
 	}
-	if len(pt.Turns) != 3 {
-		t.Fatalf("turns: got %d want 3", len(pt.Turns))
+	// Tool activity is excluded at parse: the assistant's tool_use block is
+	// dropped (its text block survives) and the tool_result-only user turn
+	// disappears entirely.
+	if len(pt.Turns) != 2 {
+		t.Fatalf("turns: got %d want 2", len(pt.Turns))
 	}
 	for _, turn := range pt.Turns {
 		for _, b := range turn.Blocks {
-			for _, leak := range []string{"private reasoning", "local-command-caveat", "command-name", "system-reminder", "injected meta line"} {
+			for _, leak := range []string{"private reasoning", "local-command-caveat", "command-name", "system-reminder", "injected meta line", "go test ./...", "FAIL: TestRefresh"} {
 				if strings.Contains(b.Text, leak) {
-					t.Fatalf("harness meta content must be excluded: %q", b.Text)
+					t.Fatalf("excluded content leaked: %q", b.Text)
 				}
 			}
 		}
@@ -53,15 +56,15 @@ func TestParseJSONL(t *testing.T) {
 	if pt.Turns[0].Blocks[0].Text != "The token refresh loop is 401ing" {
 		t.Fatalf("first real turn: %+v", pt.Turns[0])
 	}
-	if pt.Turns[2].Blocks[0].Type != "tool_result" || pt.Turns[2].Blocks[0].Text != "FAIL: TestRefresh" {
-		t.Fatalf("tool_result flattening: %+v", pt.Turns[2].Blocks[0])
+	if pt.Turns[1].Role != "assistant" || len(pt.Turns[1].Blocks) != 1 || pt.Turns[1].Blocks[0].Text != "Looking at auth/manager.go" {
+		t.Fatalf("assistant turn should keep only its text block: %+v", pt.Turns[1])
 	}
 }
 
 func TestRedact(t *testing.T) {
 	turns := []Turn{{Role: "user", Blocks: []Block{
 		{Type: "text", Text: "my key is fmsgk_abc123_S3cretPart and jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhYmMifQ.c2lnbmF0dXJlLXBhcnQ"},
-		{Type: "tool_result", Text: "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI export done; AKIAIOSFODNN7EXAMPLE"},
+		{Type: "text", Text: "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI export done; AKIAIOSFODNN7EXAMPLE"},
 		{Type: "text", Text: "-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----"},
 	}}}
 	hits := Redact(turns)
@@ -85,12 +88,8 @@ func TestRenderExchanges(t *testing.T) {
 		SharerAddress: "@bob_claude@example.com", SharedAt: 1754280000,
 		Turns: []Turn{
 			{Role: "user", Blocks: []Block{{Type: "text", Text: "hello"}}},
-			{Role: "assistant", Blocks: []Block{
-				{Type: "text", Text: "on it"},
-				{Type: "tool_use", Name: "Bash", Input: map[string]any{"command": "go test"}},
-			}},
-			// tool_result-only user turn: belongs to the current exchange.
-			{Role: "user", Blocks: []Block{{Type: "tool_result", Text: "HEAD-part\n" + strings.Repeat("x", 5000) + "\nTAIL-part"}}},
+			// Consecutive assistant turns stay in the current exchange.
+			{Role: "assistant", Blocks: []Block{{Type: "text", Text: "on it"}}},
 			{Role: "assistant", Blocks: []Block{{Type: "text", Text: "tests fail on refresh"}}},
 			// A real user prompt: starts exchange 2.
 			{Role: "user", Blocks: []Block{{Type: "text", Text: "fix it then"}}},
@@ -102,13 +101,18 @@ func TestRenderExchanges(t *testing.T) {
 		t.Fatalf("expected 2 exchanges, got %d bodies / %d contents", len(bodies), len(contents))
 	}
 	first, second := bodies[0], bodies[1]
-	for _, want := range []string{"# Fix auth", "@bob_claude@example.com", "2 messages", "**User:** hello", "🔧 tool: Bash", "````tool-output", "HEAD-part", "TAIL-part", "chars truncated"} {
+	for _, want := range []string{"# Fix auth", "@bob_claude@example.com", "2 messages", "**User:** hello", "**Claude:** on it", "tests fail on refresh"} {
 		if !strings.Contains(first, want) {
 			t.Fatalf("first body missing %q", want)
 		}
 	}
-	if strings.Contains(first, strings.Repeat("x", toolResultCap+1)) {
-		t.Fatal("tool result middle not truncated")
+	// Renderings must carry no tool activity in any form.
+	for _, body := range bodies {
+		for _, banned := range []string{"🔧", "tool-output"} {
+			if strings.Contains(body, banned) {
+				t.Fatalf("tool artifact %q leaked into rendering", banned)
+			}
+		}
 	}
 	if strings.Contains(first, "fix it then") {
 		t.Fatal("second prompt leaked into first exchange")
@@ -143,20 +147,50 @@ func TestRenderExchanges(t *testing.T) {
 	}
 }
 
-func TestTruncateMiddle(t *testing.T) {
-	s := "AAAA" + strings.Repeat("m", 10000) + "ZZZZ"
-	got := truncateMiddle(s, 1500)
-	if len(got) > 1500+64 {
-		t.Fatalf("over budget: %d", len(got))
+func TestRedactText(t *testing.T) {
+	in := "deploy key sk-ant-abcdefghijklmnop123 and note MY_PASSWORD=hunter22x"
+	out, hits := RedactText(in)
+	for _, leak := range []string{"sk-ant-abcdefghijklmnop123", "hunter22x"} {
+		if strings.Contains(out, leak) {
+			t.Fatalf("leaked %q in %q", leak, out)
+		}
 	}
-	if !strings.HasPrefix(got, "AAAA") || !strings.HasSuffix(got, "ZZZZ") {
-		t.Fatal("head/tail not preserved")
+	if len(hits) != 2 {
+		t.Fatalf("expected 2 pattern families, got %v", hits)
 	}
-	if !strings.Contains(got, "chars truncated") {
-		t.Fatal("cut marker missing")
+	if out2, hits2 := RedactText("nothing secret here"); out2 != "nothing secret here" || len(hits2) != 0 {
+		t.Fatalf("clean text must pass through: %q %v", out2, hits2)
 	}
-	if truncateMiddle("short", 1500) != "short" {
-		t.Fatal("short strings must pass through")
+}
+
+func TestRenderSummary(t *testing.T) {
+	meta := SummaryMeta{
+		Title: "Fix auth", SharerAddress: "@bob_claude@example.com",
+		Surface: "claude-code", SharedAt: 1754280000, TurnCount: 12,
+	}
+	root := RenderSummary(meta, "We fixed the token refresh loop.\n")
+	for _, want := range []string{"# Fix auth", "Summary of a Claude session shared by @bob_claude@example.com", "claude-code", "12 turns summarised", "We fixed the token refresh loop."} {
+		if !strings.Contains(root, want) {
+			t.Fatalf("root summary missing %q in %q", want, root)
+		}
+	}
+
+	meta.TurnCount = 0
+	noCount := RenderSummary(meta, "body")
+	if strings.Contains(noCount, "turns summarised") {
+		t.Fatal("unknown turn count must omit the turns clause")
+	}
+
+	meta.TurnCount = 15
+	meta.FollowUp = true
+	follow := RenderSummary(meta, "More work done.")
+	if !strings.Contains(follow, "*Updated summary ·") || !strings.Contains(follow, "15 turns summarised") {
+		t.Fatalf("follow-up header wrong: %q", follow)
+	}
+	for _, banned := range []string{"# Fix auth", "shared by"} {
+		if strings.Contains(follow, banned) {
+			t.Fatalf("follow-up must not repeat the root header (%q): %q", banned, follow)
+		}
 	}
 }
 

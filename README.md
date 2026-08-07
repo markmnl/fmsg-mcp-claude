@@ -95,21 +95,30 @@ Just ask Claude, in any session:
 
 - *"Share this session with `@kebbie@fmsg.io`"* — you'll get a preview
   (recipients, size, redactions) and nothing is sent until you approve.
+- *"Summarise this session for `@kebbie@fmsg.io`"* — Claude writes a summary
+  and sends it as a single message (with the same preview-and-approve step);
+  summarising again later threads the update onto the same conversation.
+- *"Send `@kebbie@fmsg.io` the weather today in London"* — sends exactly
+  what you ask for, right away: a dictated text or an answer Claude
+  composes, independent of the session.
 - *"Continue my latest fmsg thread"* — Claude loads the whole thread as
   context and picks up where it left off.
 - *"Reply to that thread: we shipped the fix"* — sends a Markdown reply to
   all participants.
 - *"Did my share reach everyone?"* — per-recipient delivery status.
 
-In Claude Code these are also slash commands: `/fmsg:share_session`
-and `/fmsg:continue_thread`.
+In Claude Code these are also slash commands: `/fmsg:share_session`,
+`/fmsg:share_summary` and `/fmsg:continue_thread`.
 
 **How shares work:** one Markdown fmsg message per prompt, chained with
 fmsg's reply links — the thread mirrors your conversation, so recipients can
 read it in any fmsg client, branch from any point, or load it into Claude or
-any other agent. Secrets (API keys, tokens, private keys) are redacted before
-sending. Sent messages are immutable — they can't be edited or recalled — so
-every share shows you a preview and asks before anything goes out.
+any other agent. Shares carry only the conversation text — tool commands and
+their output are excluded. Secrets (API keys, tokens, private keys) are
+redacted before sending. Sent messages are immutable — they can't be edited
+or recalled — so every share shows you a preview and asks before anything
+goes out. (Direct sends — *"send @x …"* — skip the preview and go out
+immediately; secrets are still redacted.)
 
 **Share again as you go:** keep working after a share, share again, and only
 the new exchanges are sent — chained onto the thread you already shared, so
@@ -140,3 +149,5 @@ go test ./...
 Design docs: [ARCHITECTURE.md](./ARCHITECTURE.md) · [TOOLS.md](./TOOLS.md) ·
 [UX_FLOWS.md](./UX_FLOWS.md) · [INTERFACES.md](./INTERFACES.md) ·
 [OPEN_QUESTIONS.md](./OPEN_QUESTIONS.md) · [PHASED_PLAN.md](./PHASED_PLAN.md)
+
+[MIT licensed](./LICENSE) · [Privacy policy](./PRIVACY.md)

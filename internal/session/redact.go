@@ -24,46 +24,54 @@ var redactPatterns = []redactPattern{
 	{"env_secret", regexp.MustCompile(`(?i)\b([A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|API_KEY|APIKEY)[A-Z0-9_]*)\s*[=:]\s*['"]?[^\s'"]{6,}['"]?`)},
 }
 
-// Redact scrubs secrets from every text-bearing field of the envelope's turns,
-// replacing matches with [REDACTED:<type>]. It returns the pattern names that
-// hit, sorted, for the share preview.
-func Redact(turns []Turn) []string {
-	hits := map[string]bool{}
-	scrub := func(s string) string {
-		for _, p := range redactPatterns {
-			if p.name == "env_secret" {
-				// Keep the variable name, redact only the value.
-				s = p.re.ReplaceAllStringFunc(s, func(m string) string {
-					sub := p.re.FindStringSubmatch(m)
-					hits[p.name] = true
-					return sub[1] + "=[REDACTED:env_secret]"
-				})
-				continue
-			}
-			if p.re.MatchString(s) {
+// scrub replaces secret matches in s with [REDACTED:<type>], recording each
+// pattern family that hit in hits.
+func scrub(s string, hits map[string]bool) string {
+	for _, p := range redactPatterns {
+		if p.name == "env_secret" {
+			// Keep the variable name, redact only the value.
+			s = p.re.ReplaceAllStringFunc(s, func(m string) string {
+				sub := p.re.FindStringSubmatch(m)
 				hits[p.name] = true
-				s = p.re.ReplaceAllString(s, "[REDACTED:"+p.name+"]")
-			}
+				return sub[1] + "=[REDACTED:env_secret]"
+			})
+			continue
 		}
-		return s
-	}
-	for ti := range turns {
-		for bi := range turns[ti].Blocks {
-			b := &turns[ti].Blocks[bi]
-			b.Text = scrub(b.Text)
-			if in, ok := b.Input.(map[string]any); ok {
-				for k, v := range in {
-					if sv, ok := v.(string); ok {
-						in[k] = scrub(sv)
-					}
-				}
-			}
+		if p.re.MatchString(s) {
+			hits[p.name] = true
+			s = p.re.ReplaceAllString(s, "[REDACTED:"+p.name+"]")
 		}
 	}
+	return s
+}
+
+func sortedHits(hits map[string]bool) []string {
 	var names []string
 	for n := range hits {
 		names = append(names, n)
 	}
 	sort.Strings(names)
 	return names
+}
+
+// Redact scrubs secrets from every text block of the turns, replacing matches
+// with [REDACTED:<type>]. It returns the pattern names that hit, sorted, for
+// the share preview.
+func Redact(turns []Turn) []string {
+	hits := map[string]bool{}
+	for ti := range turns {
+		for bi := range turns[ti].Blocks {
+			b := &turns[ti].Blocks[bi]
+			b.Text = scrub(b.Text, hits)
+		}
+	}
+	return sortedHits(hits)
+}
+
+// RedactText scrubs one string and returns it with the pattern names that hit,
+// sorted — for bodies that don't pass through a Transcript (summaries, direct
+// sends).
+func RedactText(s string) (string, []string) {
+	hits := map[string]bool{}
+	return scrub(s, hits), sortedHits(hits)
 }

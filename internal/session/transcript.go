@@ -21,11 +21,9 @@ type Turn struct {
 	Blocks []Block
 }
 
-// Block is one content block within a turn (text | tool_use | tool_result).
+// Block is one content block within a turn. Only text survives parsing —
+// tool activity and thinking are excluded at the parse layer.
 type Block struct {
-	Type      string
-	Text      string // text and tool_result payloads
-	Name      string // tool_use
-	Input     any    // tool_use
-	ToolUseID string // tool_result
+	Type string
+	Text string
 }

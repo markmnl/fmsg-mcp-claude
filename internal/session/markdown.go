@@ -1,7 +1,6 @@
 package session
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -12,10 +11,6 @@ const (
 	// granularity bodies are naturally small; this is a guard well under the
 	// webapi's default 10MB data limit (compression is the host's concern).
 	exchangeCap = 4 << 20
-	// toolResultCap bounds each tool result in the rendering: head and tail
-	// are kept with the middle cut, since the start (what ran) and the end
-	// (the outcome/error) carry most of the signal.
-	toolResultCap = 750
 )
 
 // RenderExchanges splits the transcript at user prompts and renders one
@@ -52,8 +47,8 @@ func RenderExchanges(t *Transcript) (bodies, contents []string) {
 }
 
 // splitExchanges starts a new group at every user turn that carries actual
-// user text; tool_result-only user turns belong to the assistant's activity
-// within the current exchange.
+// user text. (Turns are text-only after parsing, so in practice every user
+// turn anchors a group; hasText guards against whitespace-only prompts.)
 func splitExchanges(turns []Turn) [][]Turn {
 	var groups [][]Turn
 	for _, t := range turns {
@@ -113,47 +108,10 @@ func renderTurn(b *strings.Builder, t Turn) {
 		label = "User"
 	}
 	for _, blk := range t.Blocks {
-		switch blk.Type {
-		case "text":
+		if blk.Type == "text" {
 			fmt.Fprintf(b, "**%s:** %s\n\n", label, strings.TrimSpace(blk.Text))
-		case "tool_use":
-			// Consistent, filterable form: consumers can skip lines starting
-			// with "> 🔧 tool:" and fences labeled tool-output.
-			fmt.Fprintf(b, "> 🔧 tool: %s `%s`\n\n", blk.Name, summarizeInput(blk.Input))
-		case "tool_result":
-			text := strings.TrimSpace(blk.Text)
-			if text == "" {
-				continue
-			}
-			fmt.Fprintf(b, "````tool-output\n%s\n````\n\n", truncateMiddle(text, toolResultCap))
 		}
 	}
-}
-
-// truncateMiddle keeps the head and tail of s within a total budget of max
-// characters, cutting the middle — the start shows what ran, the end shows
-// how it came out.
-func truncateMiddle(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	head := max * 2 / 3
-	tail := max - head
-	cut := len(s) - max
-	return s[:head] + fmt.Sprintf("\n…[%d chars truncated]…\n", cut) + s[len(s)-tail:]
-}
-
-func summarizeInput(input any) string {
-	raw, err := json.Marshal(input)
-	if err != nil {
-		return ""
-	}
-	s := string(raw)
-	s = strings.ReplaceAll(s, "`", "'")
-	if len(s) > 160 {
-		s = s[:160] + "…"
-	}
-	return s
 }
 
 func orDefault(s, def string) string {

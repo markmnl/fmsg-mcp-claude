@@ -49,14 +49,8 @@ func isMetaText(s string) bool {
 }
 
 type jsonlBlock struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text"`
-	Thinking  string          `json:"thinking"`
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Input     any             `json:"input"`
-	ToolUseID string          `json:"tool_use_id"`
-	Content   json.RawMessage `json:"content"` // tool_result payload: string or []block
+	Type string `json:"type"`
+	Text string `json:"text"`
 }
 
 // ParsedTranscript is the result of reading a Claude Code session JSONL file.
@@ -72,9 +66,10 @@ type ParsedTranscript struct {
 	Summary string
 }
 
-// ParseJSONL reads a Claude Code session transcript. Thinking blocks are
-// excluded by design (privacy + tokens, ARCHITECTURE.md §2); unknown line and
-// block types are skipped.
+// ParseJSONL reads a Claude Code session transcript. Thinking blocks and all
+// tool activity (tool_use/tool_result) are excluded by design (privacy +
+// tokens — shares carry only the conversation text); unknown line and block
+// types are skipped.
 func ParseJSONL(path string) (*ParsedTranscript, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -149,40 +144,11 @@ func parseContent(raw json.RawMessage) []Block {
 			if jb.Text != "" && !isMetaText(jb.Text) {
 				out = append(out, Block{Type: "text", Text: jb.Text})
 			}
-		case "tool_use":
-			out = append(out, Block{Type: "tool_use", Name: jb.Name, Input: jb.Input})
-		case "tool_result":
-			out = append(out, Block{
-				Type:      "tool_result",
-				ToolUseID: jb.ToolUseID,
-				Text:      flattenResult(jb.Content),
-			})
 		default:
-			// thinking and unknown block types are dropped
-		}
-	}
-	return out
-}
-
-func flattenResult(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return s
-	}
-	var jbs []jsonlBlock
-	if err := json.Unmarshal(raw, &jbs); err != nil {
-		return ""
-	}
-	out := ""
-	for _, jb := range jbs {
-		if jb.Type == "text" && jb.Text != "" {
-			if out != "" {
-				out += "\n"
-			}
-			out += jb.Text
+			// thinking, tool_use, tool_result and unknown block types are
+			// dropped: shares carry only the conversation text. A turn whose
+			// blocks all drop (e.g. a tool_result-only user line) is skipped
+			// whole by the len(blocks)==0 check in ParseJSONL.
 		}
 	}
 	return out

@@ -14,13 +14,26 @@ import (
 	"time"
 )
 
+// CurrentFormat identifies the rendering the stored hashes were computed
+// over. Bump it whenever RenderExchanges output changes shape (format 2
+// dropped tool calls/output from renderings): stored hashes from an older
+// format can never prefix-match the new rendering, so the caller starts a
+// new thread instead of comparing against a known-stale prefix.
+const CurrentFormat = 2
+
+// KindSummary is the State.Kind for summary-share threads ("" = transcript).
+const KindSummary = "summary"
+
 // State records one session's shared-thread progress.
 type State struct {
 	SessionID      string   `json:"session_id"`
+	Kind           string   `json:"kind,omitempty"` // "" = transcript share; "summary" = summary thread
+	FormatVersion  int      `json:"format_version"`
 	ThreadRoot     int64    `json:"thread_root"`
 	LastFmsgID     int64    `json:"last_fmsg_id"`
 	Recipients     []string `json:"recipients"`
-	ExchangeHashes []string `json:"exchange_hashes"` // hash of every exchange body sent, in order
+	ExchangeHashes []string `json:"exchange_hashes"` // hash of every exchange body sent, in order; empty for summary threads
+	SummaryCount   int      `json:"summary_count,omitempty"`
 	UpdatedAt      float64  `json:"updated_at"`
 }
 
@@ -32,7 +45,7 @@ func dir() (string, error) {
 	return filepath.Join(home, ".claude", "fmsg-mcp", "shares"), nil
 }
 
-func path(sessionID string) (string, error) {
+func path(sessionID, kind string) (string, error) {
 	d, err := dir()
 	if err != nil {
 		return "", err
@@ -44,15 +57,21 @@ func path(sessionID string) (string, error) {
 		}
 		return '_'
 	}, sessionID)
+	// Transcript shares keep the historical <id>.json name; other kinds get
+	// their own file so a session can hold both threads independently.
+	if kind != "" {
+		safe += "." + kind
+	}
 	return filepath.Join(d, safe+".json"), nil
 }
 
-// Load returns the recorded state for a session, or nil when none exists.
-func Load(sessionID string) (*State, error) {
+// Load returns the recorded state for a session and kind ("" = transcript
+// share, KindSummary = summary thread), or nil when none exists.
+func Load(sessionID, kind string) (*State, error) {
 	if sessionID == "" {
 		return nil, nil
 	}
-	p, err := path(sessionID)
+	p, err := path(sessionID, kind)
 	if err != nil {
 		return nil, err
 	}
@@ -70,15 +89,16 @@ func Load(sessionID string) (*State, error) {
 	return &s, nil
 }
 
-// Save persists the state (atomic write).
+// Save persists the state (atomic write), stamping the current format.
 func Save(s *State) error {
-	p, err := path(s.SessionID)
+	p, err := path(s.SessionID, s.Kind)
 	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
+	s.FormatVersion = CurrentFormat
 	s.UpdatedAt = float64(time.Now().Unix())
 	raw, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {

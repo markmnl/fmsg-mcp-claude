@@ -1,8 +1,12 @@
 name: release
 
-# On a published release: build fmsg-mcp (and the fmsg CLI it drives) for every
-# supported platform, package Claude Desktop extension bundles (.mcpb) for the
-# platforms Desktop supports, and attach everything to the release.
+# On a published release: build fmsg-mcp for every supported platform (with
+# the fmsg CLI it drives embedded), package signed Claude Desktop extension
+# bundles (.mcpb) for the platforms Desktop supports, and attach them to the
+# release. Only two artifact kinds are published — .mcpb bundles for Claude
+# Desktop and fmsg-mcp_<os>_<arch> binaries for Claude Code installs (the
+# README's install prompt downloads the right one); the fmsg CLI is embedded,
+# never published standalone (it has its own releases).
 on:
   release:
     types: [published]
@@ -45,11 +49,10 @@ jobs:
           for p in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
             goos="${p%/*}" goarch="${p#*/}" ext=""
             [ "$goos" = windows ] && ext=".exe"
-            # Build the CLI for this platform, publish it standalone, and embed
-            # it into fmsg-mcp so users need a single download.
+            # Build the CLI for this platform and embed it into fmsg-mcp so
+            # users need a single download; the CLI is not published standalone.
             (cd /tmp/fmsg-cli && CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-              go build -trimpath -ldflags "-s -w" -o "$GITHUB_WORKSPACE/dist/fmsg_${goos}_${goarch}${ext}" .)
-            cp "dist/fmsg_${goos}_${goarch}${ext}" internal/cli/embedded/fmsg-bin
+              go build -trimpath -ldflags "-s -w" -o "$GITHUB_WORKSPACE/internal/cli/embedded/fmsg-bin" .)
             # Stamp the release tag (sans leading v) as the reported version.
             CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
               go build -tags embedcli -trimpath \
@@ -83,7 +86,41 @@ jobs:
           done
           ls -l dist/*.mcpb
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Sign every bundle: with the org's code-signing certificate when the
+      # MCPB_SIGNING_* secrets are configured, else self-signed so the bundle
+      # still carries an integrity signature. Verification runs either way.
+      - name: Sign and verify Claude Desktop bundles
+        env:
+          MCPB_SIGNING_CERT: ${{ secrets.MCPB_SIGNING_CERT }}
+          MCPB_SIGNING_KEY: ${{ secrets.MCPB_SIGNING_KEY }}
+          MCPB_SIGNING_INTERMEDIATE: ${{ secrets.MCPB_SIGNING_INTERMEDIATE }}
+        run: |
+          set -euo pipefail
+          npm install -g @anthropic-ai/mcpb
+          sign_args=(--self-signed)
+          if [ -n "${MCPB_SIGNING_CERT:-}" ]; then
+            keydir=$(mktemp -d)
+            printf '%s' "$MCPB_SIGNING_CERT" > "$keydir/cert.pem"
+            printf '%s' "$MCPB_SIGNING_KEY" > "$keydir/key.pem"
+            sign_args=(--cert "$keydir/cert.pem" --key "$keydir/key.pem")
+            if [ -n "${MCPB_SIGNING_INTERMEDIATE:-}" ]; then
+              printf '%s' "$MCPB_SIGNING_INTERMEDIATE" > "$keydir/intermediate.pem"
+              sign_args+=(--intermediate "$keydir/intermediate.pem")
+            fi
+            echo "Signing with configured certificate"
+          else
+            echo "MCPB_SIGNING_CERT not configured — signing self-signed"
+          fi
+          for b in dist/*.mcpb; do
+            mcpb sign "$b" "${sign_args[@]}"
+            mcpb verify "$b"
+          done
+
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" dist/* --clobber
+        run: gh release upload "$TAG" dist/fmsg-mcp_* dist/*.mcpb --clobber

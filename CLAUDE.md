@@ -29,7 +29,9 @@ gofmt -l . && go vet ./...
   the webapi PUT is full-replacement (upstream bug, OPEN_QUESTIONS #15).
 - CLI argv: `--json` first; flags before any negative message index; message
   bodies passed as temp-file paths, never inline text.
-- Never bypass the two-phase preview/confirm or the redaction pass. Keep the
+- Never bypass the two-phase preview/confirm for session/summary shares;
+  `send_message` is the agreed immediate-send exception (STATUS decision 11).
+  Never bypass the redaction pass anywhere. Keep the
   user-facing framing to a simple "are you sure you want to send?" — the
   immutability fact ("cannot be edited or recalled") is background, not a
   scare line. Avoid "cannot be deleted" (hosts may delete from their own

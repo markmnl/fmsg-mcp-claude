@@ -1,15 +1,16 @@
 # STATUS — where this project is and how it got here
 
-*Last updated: 2026-08-05. This is the orientation document: read it first.*
+*Last updated: 2026-08-07. This is the orientation document: read it first.*
 
 ## What exists and works
 
 `fmsg-mcp` (Go, stdio MCP server, `modelcontextprotocol/go-sdk`) is **built,
 unit-tested, and partially live-tested** against real fmsg hosts. Tools:
-`share_session` (two-phase preview→confirm), `continue_thread`,
-`reply_to_thread`, `list_threads`, `delivery_status`, `whoami`,
-`resolve_address`; MCP prompts `share_session` and `continue_thread`
-(Claude Code slash commands). Release automation
+`share_session` (two-phase preview→confirm), `share_summary` (two-phase,
+model-authored single-message summary), `send_message` (immediate standalone
+send), `continue_thread`, `reply_to_thread`, `list_threads`,
+`delivery_status`, `whoami`, `resolve_address`; MCP prompts `share_session`,
+`share_summary` and `continue_thread` (Claude Code slash commands). Release automation
 (`.github/workflows/release.yml`) builds platform binaries with the fmsg CLI
 **embedded** (`-tags embedcli`, extracted to the user cache dir at runtime)
 plus Claude Desktop `.mcpb` bundles (manifest_version 0.3, verified against
@@ -39,9 +40,11 @@ the global `--json` flag (also surfaces previously-dropped
 3. **One fmsg message per user prompt, pid-chained** — the fmsg thread
    mirrors the conversation, so receivers can branch from or resume up to
    any prompt, and later shares continue the chain via `reply_to_fmsg_id`.
-   Compression is the host's job. Tool activity renders as `> 🔧 tool:` lines
-   with ````tool-output` fences so any consumer can mechanically skip it;
-   tool results keep head+tail (750-char budget, middle cut).
+   Compression is the host's job. ~~Tool activity renders as `> 🔧 tool:`
+   lines with ````tool-output` fences so any consumer can mechanically skip
+   it; tool results keep head+tail (750-char budget, middle cut).~~
+   *(Tool rendering superseded by decision 9: tool activity is now excluded
+   entirely.)*
 4. **Default topic = Claude Code's own session summary** (the `summary`
    lines in the transcript JSONL), falling back to the first prompt's
    opening words.
@@ -70,6 +73,35 @@ the global `--json` flag (also surfaces previously-dropped
    new thread. State saves after *every* sent message, so a mid-chain
    failure resumes from the last delivered message on the next share.
    Explicit `reply_to_fmsg_id` bypasses the state entirely.
+9. **Tool calls and tool output excluded entirely (2026-08-07,
+   user-requested; supersedes the tool rendering in decision 3):** shares
+   carry only user/assistant text. Stripping happens at the parse layer
+   (`parseContent` drops `tool_use`/`tool_result` alongside thinking), so
+   tool-only turns vanish before exchange splitting and no rendering or
+   redaction path ever sees tool data. Consequence: pre-change sharestate
+   hashes were computed over tool-inclusive renderings and can never
+   prefix-match again — sharestate gained `format_version`
+   (`CurrentFormat = 2`); a stale-format state previews as mode
+   `new_thread_render_format_changed` and the re-share starts a fresh
+   thread. One-time cost, accepted.
+10. **`share_summary` (2026-08-07, user-requested):** share a session as ONE
+    fmsg message instead of the whole transcript. The MCP server has no LLM —
+    the model writes the summary and passes it as the `summary` argument; the
+    server adds the provenance header (`RenderSummary`), redacts, and sends
+    through the same two-phase preview→confirm. Re-summarising the same
+    session threads the updated summary as a reply (user decision), tracked
+    in `<session-id>.summary.json` (sharestate `Kind: "summary"`, no
+    exchange hashes; continuation requires the same recipient set). The
+    preview warns above ~9.5 KiB — the fmsg federation default max message
+    size is 10 KiB (delivery code 4), while the webapi allows 10 MB.
+11. **`send_message` (2026-08-07, user decision):** immediate standalone
+    send — verbatim text or a model-composed answer — with **no
+    preview/confirm**, a deliberate exception to decision 5: the user's own
+    prompt ("send @x …") is the intent, and a preview would add a round-trip
+    to every quick send. Redaction is NOT excepted — it runs on body and
+    topic, with hits reported in the result since there is no preview.
+    Replies stay `reply_to_thread`'s job; `send_message` always starts a
+    new thread (topic defaults to the body's first line).
 
 ## Live-testing findings (fmsg.live / fmsg.io, 2026-08-04)
 
@@ -144,7 +176,23 @@ merged and deployed to both live stacks.)*
    for now share_session waits up to 60s on the chain's final message so
    most results carry terminal per-recipient state (MCP stdio cannot push
    into the conversation unprompted).
-6. **Housekeeping**: ARCHITECTURE.md and TOOLS.md still describe v0.1 under
+6. **Anthropic desktop-extension directory submission (2026-08-07, in
+   prep):** goal is a warning-free one-click install from within Claude
+   Desktop (file-based .mcpb installs always show "unverified" warnings;
+   `mcpb sign` is not documented to remove them — directory listing is).
+   Done: tool annotations (title + readOnly/destructive hints, required by
+   review), manifest metadata (homepage/support/keywords/long_description/
+   `privacy_policies`), PRIVACY.md, release workflow signs+verifies bundles
+   (`MCPB_SIGNING_*` secrets, self-signed fallback) and publishes only
+   .mcpb bundles + fmsg-mcp binaries (standalone fmsg-cli artifacts
+   dropped); LICENSE added (MIT, user decision 2026-08-07) and stamped in
+   the manifest; user has a reviewer test account ready. Remaining: cut a
+   release so signed bundles + PRIVACY.md URL are live, then submit at
+   https://clau.de/desktop-extention-submission. Separately, OS-level:
+   Apple Developer ID notarization of the embedded binary (Gatekeeper) and
+   a Windows code-signing cert (SmartScreen). Escalation contact:
+   mcp-review@anthropic.com.
+7. **Housekeeping**: ARCHITECTURE.md and TOOLS.md still describe v0.1 under
    supersession banners — rewrite to the shipped design; prune
    OPEN_QUESTIONS; keep watching assumption A3 (Claude Code JSONL schema
    drift — the parser is deliberately tolerant).

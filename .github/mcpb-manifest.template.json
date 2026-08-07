@@ -5,6 +5,7 @@
   "version": "__VERSION__",
   "icon": "icon.png",
   "description": "Share Claude sessions as fmsg threads, and resume any fmsg thread as Claude context.",
+  "long_description": "Share your Claude session with anyone as an fmsg thread — the whole conversation, or a one-message summary — and open any fmsg thread in Claude with the full conversation as context. Shares are plain Markdown messages: readable in any fmsg client, usable by any agent. Only the conversation text is shared (never tool commands, tool output, or thinking); secrets are redacted automatically; and every share shows a preview and asks before anything is sent.",
   "author": {
     "name": "markmnl",
     "url": "https://github.com/markmnl"
@@ -13,6 +14,14 @@
     "type": "git",
     "url": "https://github.com/markmnl/fmsg-mcp-claude"
   },
+  "homepage": "https://github.com/markmnl/fmsg-mcp-claude",
+  "documentation": "https://github.com/markmnl/fmsg-mcp-claude#readme",
+  "support": "https://github.com/markmnl/fmsg-mcp-claude/issues",
+  "privacy_policies": [
+    "https://github.com/markmnl/fmsg-mcp-claude/blob/main/PRIVACY.md"
+  ],
+  "keywords": ["fmsg", "messaging", "session-sharing", "collaboration", "federation"],
+  "license": "MIT",
   "server": {
     "type": "binary",
     "entry_point": "server/fmsg-mcp__EXT__",

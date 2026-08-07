@@ -13,6 +13,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +35,7 @@ var version = "dev"
 // pendingShare is phase-1 state awaiting the user's confirmation
 // (immutability means no share leaves without an explicit preview).
 type pendingShare struct {
+	kind       string   // "" = transcript share; sharestate.KindSummary = summary
 	bodies     []string // one fmsg message per exchange, pid-chained on send
 	title      string
 	recipients []string
@@ -42,11 +44,13 @@ type pendingShare struct {
 
 	// Incremental-share bookkeeping (sharestate): which session this is,
 	// hashes of every exchange in it, how many were already shared, and the
-	// existing thread root when continuing.
-	sessionID  string
-	allHashes  []string
-	baseCount  int
-	threadRoot int64
+	// existing thread root when continuing. Summary shares track only the
+	// thread position plus how many summaries preceded this one.
+	sessionID    string
+	allHashes    []string
+	baseCount    int
+	threadRoot   int64
+	summaryCount int
 }
 
 type server struct {
@@ -68,6 +72,13 @@ func main() {
 
 	srv := mcp.NewServer(&mcp.Implementation{Name: "fmsg", Title: "fmsg session sharing", Version: version}, nil)
 
+	// Annotation shapes (MCP hints, also required by the Anthropic extension
+	// directory review): sends are additive-only — fmsg messages are immutable,
+	// nothing existing is modified or deleted — so DestructiveHint is false;
+	// every tool that talks to an fmsg host is open-world.
+	sendHints := &mcp.ToolAnnotations{DestructiveHint: boolHint(false), OpenWorldHint: boolHint(true)}
+	readHints := &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolHint(true)}
+
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "share_session",
 		Description: "Share the current Claude session as an fmsg message (Markdown transcript) to the recipient " +
@@ -75,39 +86,70 @@ func main() {
 			"confirm_token; show the user the preview, ask simply \"Are you sure?\", and only after they say yes " +
 			"call again with confirm_token. Re-sharing a session already shared to the same recipients sends only " +
 			"the new exchanges, chained onto the existing thread — no need to track message ids yourself.",
+		Annotations: withTitle(sendHints, "Share session via fmsg"),
 	}, s.shareSession)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "share_summary",
+		Description: "Share a summary of the current Claude session as a single fmsg message. YOU write the summary " +
+			"and pass it as the summary argument — concise Markdown covering: the goal, what was done, key decisions " +
+			"and why, current state, and next steps. Aim well under 8 KB; the fmsg federation default message limit " +
+			"is 10 KiB. Two-phase like share_session: the first call returns a preview (recipients, size, redactions) " +
+			"and a confirm_token; show the user the preview, ask simply \"Are you sure?\", and only after they say " +
+			"yes call again with confirm_token. Summarising the same session again later automatically threads the " +
+			"new summary as a reply to the previous one. For the full transcript use share_session instead.",
+		Annotations: withTitle(sendHints, "Share session summary via fmsg"),
+	}, s.shareSummary)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "continue_thread",
 		Description: "Resume from an fmsg thread: walks the message's ancestor chain to the root and returns every " +
 			"message body on the lineage, in order, as context. Use fmsg_id -1 for the most recent inbox message.",
+		Annotations: withTitle(readHints, "Continue fmsg thread"),
 	}, s.continueThread)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "reply_to_thread",
 		Description: "Send a Markdown reply into an fmsg thread. By default the reply goes to all participants of " +
 			"the message being replied to; pass recipients to address a different set.",
+		Annotations: withTitle(sendHints, "Reply to fmsg thread"),
 	}, s.replyToThread)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "send_message",
+		Description: "Send a standalone fmsg message immediately — no preview step. Use when the user asks to send " +
+			"someone specific content: a verbatim text they dictate, or an answer they ask you to compose " +
+			"(\"send @x the weather in london\"). recipients and body (Markdown) are required; topic defaults to the " +
+			"body's first line. Secrets are auto-redacted and any redactions are reported in the result. This starts " +
+			"a new thread — to reply within an existing fmsg thread use reply_to_thread; to share this session use " +
+			"share_session or share_summary.",
+		Annotations: withTitle(sendHints, "Send fmsg message"),
+	}, s.sendMessage)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_threads",
 		Description: "List recent inbox messages (id, sender, topic, whether it starts a thread).",
+		Annotations: withTitle(readHints, "List fmsg inbox"),
 	}, s.listThreads)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "delivery_status",
 		Description: "Report per-recipient delivery state for a sent fmsg message (delivered time and response code). " +
 			"Cross-host delivery is asynchronous — a pending recipient may still deliver later.",
+		Annotations: withTitle(readHints, "Check fmsg delivery status"),
 	}, s.deliveryStatus)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "whoami",
 		Description: "Report the fmsg identity this server sends as (from the configured API key), plus API URL and auth type.",
+		Annotations: withTitle(readHints, "Show fmsg identity"),
 	}, s.whoami)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "resolve_address",
 		Description: "Dry-run the teammate-name → fmsg-address resolution chain without sending anything.",
+		// Resolution is purely local (env + directory file): closed world.
+		Annotations: &mcp.ToolAnnotations{Title: "Resolve fmsg address", ReadOnlyHint: true, OpenWorldHint: boolHint(false)},
 	}, s.resolveAddress)
 
 	addPrompts(srv)
@@ -150,6 +192,66 @@ func (s *server) resolveIdentity(ctx context.Context) (*identity.Whoami, error) 
 		}
 	}
 	return w, nil
+}
+
+// resolvedRecipient is one recipient's name→address resolution, for previews
+// and results.
+type resolvedRecipient struct {
+	Address    string `json:"address"`
+	Resolution string `json:"resolution"`
+}
+
+// resolveRecipients resolves every name through the identity chain
+// (literal/directory/convention), failing on the first unresolvable one.
+func (s *server) resolveRecipients(names []string) ([]string, []resolvedRecipient, error) {
+	if len(names) == 0 {
+		return nil, nil, fmt.Errorf("at least one recipient is required")
+	}
+	var addrs []string
+	var resolutions []resolvedRecipient
+	for _, name := range names {
+		addr, resolution, err := s.idCfg.Resolve(name)
+		if err != nil {
+			return nil, nil, err
+		}
+		addrs = append(addrs, addr)
+		resolutions = append(resolutions, resolvedRecipient{Address: addr, Resolution: resolution})
+	}
+	return addrs, resolutions, nil
+}
+
+// sendOne drafts and sends a single message: temp-file body, DraftCreate,
+// full-restating UpdateFull (webapi PUT is full-replacement), DraftSend.
+// A failure after draft creation deletes the draft before returning.
+func (s *server) sendOne(ctx context.Context, recipients []string, body, topic string, pid int64) (int64, error) {
+	dir, err := os.MkdirTemp("", "fmsg-mcp-send-*")
+	if err != nil {
+		return 0, err
+	}
+	defer os.RemoveAll(dir)
+	bodyPath := filepath.Join(dir, "body.md")
+	if err := os.WriteFile(bodyPath, []byte(body), 0o600); err != nil {
+		return 0, err
+	}
+	id, err := s.runner.DraftCreate(ctx, recipients[0], bodyPath, topic, pid)
+	if err != nil {
+		return 0, err
+	}
+	cleanup := func(cause error) error {
+		if derr := s.runner.Del(ctx, id); derr != nil {
+			return fmt.Errorf("%w (and draft %d cleanup failed: %v)", cause, id, derr)
+		}
+		return cause
+	}
+	// The update must restate every field: webapi PUT is full-replacement,
+	// so a type-only update would wipe recipients, pid, and topic.
+	if err := s.runner.UpdateFull(ctx, id, bodyPath, recipients, "text/markdown", topic, pid); err != nil {
+		return 0, cleanup(err)
+	}
+	if err := s.runner.DraftSend(ctx, id); err != nil {
+		return 0, cleanup(err)
+	}
+	return id, nil
 }
 
 func jsonResult(v any) (*mcp.CallToolResult, any, error) {
@@ -196,23 +298,9 @@ func (s *server) sharePreview(ctx context.Context, args shareArgs) (*mcp.CallToo
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(args.Recipients) == 0 {
-		return nil, nil, fmt.Errorf("at least one recipient is required")
-	}
-
-	type resolved struct {
-		Address    string `json:"address"`
-		Resolution string `json:"resolution"`
-	}
-	var recipients []string
-	var resolutions []resolved
-	for _, name := range args.Recipients {
-		addr, resolution, rerr := s.idCfg.Resolve(name)
-		if rerr != nil {
-			return nil, nil, rerr
-		}
-		recipients = append(recipients, addr)
-		resolutions = append(resolutions, resolved{Address: addr, Resolution: resolution})
+	recipients, resolutions, err := s.resolveRecipients(args.Recipients)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	tr, err := s.buildTranscript(args, who)
@@ -234,9 +322,14 @@ func (s *server) sharePreview(ctx context.Context, args shareArgs) (*mcp.CallToo
 	replyTo := args.ReplyToFmsgID
 	var threadRoot int64
 	if replyTo == 0 && tr.SessionID != "" {
-		if st, serr := sharestate.Load(tr.SessionID); serr == nil && st != nil {
+		if st, serr := sharestate.Load(tr.SessionID, ""); serr == nil && st != nil {
 			delta, extends := sharestate.Delta(st.ExchangeHashes, contents)
 			switch {
+			case st.FormatVersion != sharestate.CurrentFormat:
+				// Stored hashes were computed over an older rendering format
+				// and can never prefix-match — start a fresh thread rather
+				// than mislabelling the mismatch as content divergence.
+				mode = "new_thread_render_format_changed"
 			case !extends:
 				mode = "new_thread_session_diverged"
 			case !sharestate.SameRecipients(st.Recipients, recipients):
@@ -314,37 +407,19 @@ func (s *server) shareConfirm(ctx context.Context, token string) (*mcp.CallToolR
 		return nil, nil, fmt.Errorf("unknown or expired confirm_token; run share_session again for a fresh preview")
 	}
 
-	dir, err := os.MkdirTemp("", "fmsg-mcp-share-*")
-	if err != nil {
-		return nil, nil, err
-	}
-	defer os.RemoveAll(dir)
-
 	// Send one message per exchange, each pid-linked to the previous, so the
 	// fmsg thread mirrors the conversation. Sent messages cannot be recalled,
 	// so a mid-chain failure reports what did go out.
 	var sent []int64
 	prev := p.replyTo
 	for i, body := range p.bodies {
-		bodyPath := filepath.Join(dir, fmt.Sprintf("body-%d.md", i))
-		if err := os.WriteFile(bodyPath, []byte(body), 0o600); err != nil {
-			return s.sharePartial(ctx, sent, 0, err)
-		}
 		topic := ""
 		if i == 0 && p.replyTo == 0 {
 			topic = orDefault(p.title, "Claude session")
 		}
-		id, err := s.runner.DraftCreate(ctx, p.recipients[0], bodyPath, topic, prev)
+		id, err := s.sendOne(ctx, p.recipients, body, topic, prev)
 		if err != nil {
-			return s.sharePartial(ctx, sent, 0, err)
-		}
-		// The update must restate every field: webapi PUT is full-replacement,
-		// so a type-only update would wipe recipients, pid, and topic.
-		if err := s.runner.UpdateFull(ctx, id, bodyPath, p.recipients, "text/markdown", topic, prev); err != nil {
-			return s.sharePartial(ctx, sent, id, err)
-		}
-		if err := s.runner.DraftSend(ctx, id); err != nil {
-			return s.sharePartial(ctx, sent, id, err)
+			return s.sharePartial(sent, err)
 		}
 		sent = append(sent, id)
 		prev = id
@@ -355,7 +430,7 @@ func (s *server) shareConfirm(ctx context.Context, token string) (*mcp.CallToolR
 		// recipient before sending its child (OPEN_QUESTIONS #18).
 		if i < len(p.bodies)-1 {
 			if pending := s.waitDelivered(ctx, id, 60*time.Second); len(pending) > 0 {
-				return s.sharePartial(ctx, sent, 0, fmt.Errorf(
+				return s.sharePartial(sent, fmt.Errorf(
 					"message %d not yet delivered to %v after 60s; stopping so later messages aren't rejected as parent-not-found — once delivery_status shows it delivered, continue the chain with reply_to_fmsg_id=%d",
 					id, pending, id))
 			}
@@ -365,6 +440,12 @@ func (s *server) shareConfirm(ctx context.Context, token string) (*mcp.CallToolR
 	note := fmt.Sprintf("one message per prompt, pid-chained; recipients can branch from or resume up to any of them (continue_thread %d for the whole session)", sent[len(sent)-1])
 	if p.threadRoot != 0 {
 		note = fmt.Sprintf("continued the previously shared thread (root %d): only the %d new message(s) were sent; sharing again later will keep extending this thread", p.threadRoot, len(sent))
+	}
+	if p.kind == sharestate.KindSummary {
+		note = "summary sent as a single message; summarising this session again later threads an updated summary as a reply"
+		if p.threadRoot != 0 {
+			note = fmt.Sprintf("updated summary sent as a reply into the existing summary thread (root %d)", p.threadRoot)
+		}
 	}
 	result := map[string]any{
 		"status":      "sent",
@@ -402,11 +483,16 @@ func (s *server) saveShareState(p *pendingShare, sent []int64) {
 		root = sent[0]
 	}
 	st := &sharestate.State{
-		SessionID:      p.sessionID,
-		ThreadRoot:     root,
-		LastFmsgID:     sent[len(sent)-1],
-		Recipients:     p.recipients,
-		ExchangeHashes: p.allHashes[:p.baseCount+len(sent)],
+		SessionID:  p.sessionID,
+		Kind:       p.kind,
+		ThreadRoot: root,
+		LastFmsgID: sent[len(sent)-1],
+		Recipients: p.recipients,
+	}
+	if p.kind == sharestate.KindSummary {
+		st.SummaryCount = p.summaryCount + 1
+	} else {
+		st.ExchangeHashes = p.allHashes[:p.baseCount+len(sent)]
 	}
 	if err := sharestate.Save(st); err != nil {
 		log.Printf("fmsg-mcp: share state not saved (next share will resend the whole session): %v", err)
@@ -505,13 +591,8 @@ func deliveryMeaning(d cli.RecipientDelivery) string {
 }
 
 // sharePartial reports a mid-chain failure honestly: messages already sent
-// stay sent; only the failed draft is cleaned up.
-func (s *server) sharePartial(ctx context.Context, sent []int64, failedDraft int64, cause error) (*mcp.CallToolResult, any, error) {
-	if failedDraft != 0 {
-		if derr := s.runner.Del(ctx, failedDraft); derr != nil {
-			cause = fmt.Errorf("%w (and draft %d cleanup failed: %v)", cause, failedDraft, derr)
-		}
-	}
+// stay sent (the failed draft was already cleaned up by sendOne).
+func (s *server) sharePartial(sent []int64, cause error) (*mcp.CallToolResult, any, error) {
 	if len(sent) == 0 {
 		return nil, nil, cause
 	}
@@ -673,34 +754,205 @@ func (s *server) replyToThread(ctx context.Context, req *mcp.CallToolRequest, ar
 		return nil, nil, fmt.Errorf("no recipients: you are the only participant of message %d", args.FmsgID)
 	}
 
-	dir, err := os.MkdirTemp("", "fmsg-mcp-reply-*")
+	id, err := s.sendOne(ctx, recipients, args.Body, "", args.FmsgID)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(dir)
-	bodyPath := filepath.Join(dir, "reply.md")
-	if err := os.WriteFile(bodyPath, []byte(args.Body), 0o600); err != nil {
+	result := map[string]any{"status": "sent", "fmsg_id": id, "recipients": recipients}
+	if delivery, derr := s.deliverySnapshot(ctx, id); derr == nil {
+		result["delivery"] = delivery
+	}
+	return jsonResult(result)
+}
+
+// ---------------------------------------------------------------- summary
+
+type summaryArgs struct {
+	Recipients   []string `json:"recipients,omitempty" jsonschema:"recipient fmsg addresses (@user@example.com) or short names to resolve. Required on the preview call; not needed when confirming with confirm_token"`
+	Summary      string   `json:"summary,omitempty" jsonschema:"the summary you have written of this session, in Markdown. Required on the preview call"`
+	Title        string   `json:"title,omitempty" jsonschema:"thread topic; defaults to the session's own summary line. On a root share this becomes the immutable fmsg topic"`
+	SessionID    string   `json:"session_id,omitempty" jsonschema:"Claude Code session id, if known, to disambiguate parallel sessions"`
+	ConfirmToken string   `json:"confirm_token,omitempty" jsonschema:"token from the phase-1 preview; presence triggers the actual send"`
+}
+
+func (s *server) shareSummary(ctx context.Context, req *mcp.CallToolRequest, args summaryArgs) (*mcp.CallToolResult, any, error) {
+	if err := s.ensureCLI(ctx); err != nil {
+		return nil, nil, err
+	}
+	if args.ConfirmToken != "" {
+		return s.shareConfirm(ctx, args.ConfirmToken)
+	}
+	return s.summaryPreview(ctx, args)
+}
+
+func (s *server) summaryPreview(ctx context.Context, args summaryArgs) (*mcp.CallToolResult, any, error) {
+	if strings.TrimSpace(args.Summary) == "" {
+		return nil, nil, fmt.Errorf("summary is empty: write a concise Markdown summary of this session (goal, work done, key decisions, current state, next steps) and pass it as the summary argument")
+	}
+	who, err := s.resolveIdentity(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	recipients, resolutions, err := s.resolveRecipients(args.Recipients)
+	if err != nil {
 		return nil, nil, err
 	}
 
-	id, err := s.runner.DraftCreate(ctx, recipients[0], bodyPath, "", args.FmsgID)
+	// Best-effort session lookup: threading, turn count and default title all
+	// come from it, but a summary can still be shared when the session file
+	// isn't locatable (claude.ai/Desktop) — just stateless, with no turn
+	// count in the header.
+	surface := "claude-ai"
+	sid := args.SessionID
+	turnCount := 0
+	title := args.Title
+	if home, herr := os.UserHomeDir(); herr == nil {
+		if projectDir, werr := os.Getwd(); werr == nil { // assumption A1: stdio server inherits the project CWD
+			if path, locSID, _, lerr := locator.Locate(home, projectDir, args.SessionID); lerr == nil {
+				if pt, perr := session.ParseJSONL(path); perr == nil {
+					surface = "claude-code"
+					sid = locSID
+					turnCount = len(pt.Turns)
+					if title == "" {
+						title = clipTitle(pt.Summary)
+					}
+					if title == "" {
+						title = deriveTitle(pt.Turns)
+					}
+				}
+			}
+		}
+	}
+	if title == "" {
+		title = "Claude session summary"
+	}
+
+	summary, hits := session.RedactText(args.Summary)
+	title, titleHits := session.RedactText(title)
+	hits = mergeHits(hits, titleHits)
+
+	mode := "new_summary_thread"
+	var replyTo, threadRoot int64
+	summaryCount := 0
+	if sid != "" {
+		if st, serr := sharestate.Load(sid, sharestate.KindSummary); serr == nil && st != nil {
+			switch {
+			case st.FormatVersion != sharestate.CurrentFormat:
+				mode = "new_summary_thread_format_changed"
+			case !sharestate.SameRecipients(st.Recipients, recipients):
+				mode = "new_summary_thread_different_audience"
+			default:
+				mode = "continue_summary_thread"
+				replyTo = st.LastFmsgID
+				threadRoot = st.ThreadRoot
+				summaryCount = st.SummaryCount
+			}
+		}
+	}
+
+	body := session.RenderSummary(session.SummaryMeta{
+		Title: title, SharerAddress: who.Address, Surface: surface,
+		SharedAt: float64(time.Now().Unix()), TurnCount: turnCount,
+		FollowUp: replyTo != 0,
+	}, summary)
+
+	token := "st_" + randomHex(16)
+	s.mu.Lock()
+	for t, p := range s.pending { // expire stale previews
+		if time.Since(p.created) > 15*time.Minute {
+			delete(s.pending, t)
+		}
+	}
+	s.pending[token] = &pendingShare{
+		kind: sharestate.KindSummary, bodies: []string{body}, title: title,
+		recipients: recipients, replyTo: replyTo, created: time.Now(),
+		sessionID: sid, threadRoot: threadRoot, summaryCount: summaryCount,
+	}
+	s.mu.Unlock()
+
+	preview := map[string]any{
+		"status":        "needs_confirmation",
+		"mode":          mode,
+		"from":          who.Address,
+		"recipients":    resolutions,
+		"title":         title,
+		"messages":      1,
+		"total_bytes":   len(body),
+		"redactions":    hits,
+		"confirm":       "Present this preview to the user as a short multi-line list (from, recipients, title, size, any redactions) — then on its own line ask exactly: \"Are you sure?\" No extra warnings. Re-invoke with confirm_token only after they say yes.",
+		"confirm_token": token,
+	}
+	if turnCount > 0 {
+		preview["turns_summarised"] = turnCount
+	}
+	if mode == "continue_summary_thread" {
+		preview["continuing_thread_root"] = threadRoot
+		preview["note"] = "this session was summarised before; the updated summary will be sent as a reply into that thread"
+	}
+	if len(body) > 9728 {
+		preview["size_warning"] = fmt.Sprintf("rendered summary is %d bytes — near or over the 10 KiB fmsg federation default message size; a cross-host recipient may bounce it as too big (delivery code 4). Consider a shorter summary.", len(body))
+	}
+	return jsonResult(preview)
+}
+
+// mergeHits unions two sorted redaction-hit lists.
+func mergeHits(a, b []string) []string {
+	if len(b) == 0 {
+		return a
+	}
+	seen := map[string]bool{}
+	for _, h := range a {
+		seen[h] = true
+	}
+	for _, h := range b {
+		if !seen[h] {
+			a = append(a, h)
+			seen[h] = true
+		}
+	}
+	sort.Strings(a)
+	return a
+}
+
+// ---------------------------------------------------------------- send
+
+type sendArgs struct {
+	Recipients []string `json:"recipients" jsonschema:"recipient fmsg addresses (@user@example.com) or short names to resolve"`
+	Body       string   `json:"body" jsonschema:"the Markdown message body to send"`
+	Topic      string   `json:"topic,omitempty" jsonschema:"thread topic; defaults to the body's first line"`
+}
+
+// sendMessage sends a standalone message immediately — the agreed exception
+// to the two-phase preview/confirm (STATUS.md decision 11): the user's own
+// prompt is the intent. Redaction still applies, reported in the result.
+func (s *server) sendMessage(ctx context.Context, req *mcp.CallToolRequest, args sendArgs) (*mcp.CallToolResult, any, error) {
+	if err := s.ensureCLI(ctx); err != nil {
+		return nil, nil, err
+	}
+	if strings.TrimSpace(args.Body) == "" {
+		return nil, nil, fmt.Errorf("message body is empty")
+	}
+	recipients, resolutions, err := s.resolveRecipients(args.Recipients)
 	if err != nil {
 		return nil, nil, err
 	}
-	cleanup := func(cause error) (*mcp.CallToolResult, any, error) {
-		if derr := s.runner.Del(ctx, id); derr != nil {
-			return nil, nil, fmt.Errorf("%w (and draft %d cleanup failed: %v)", cause, id, derr)
-		}
-		return nil, nil, cause
+	body, hits := session.RedactText(args.Body)
+	topic, _ := session.RedactText(clipTitle(orDefault(args.Topic, body)))
+
+	id, err := s.sendOne(ctx, recipients, body, topic, 0)
+	if err != nil {
+		return nil, nil, err
 	}
-	// Restate every field — webapi PUT is full-replacement (see UpdateFull).
-	if err := s.runner.UpdateFull(ctx, id, bodyPath, recipients, "text/markdown", "", args.FmsgID); err != nil {
-		return cleanup(err)
+	result := map[string]any{
+		"status": "sent", "fmsg_id": id,
+		"recipients": resolutions, "redactions": hits,
 	}
-	if err := s.runner.DraftSend(ctx, id); err != nil {
-		return cleanup(err)
+	if len(hits) > 0 {
+		result["note"] = "secrets matching the listed patterns were redacted from the body before sending"
 	}
-	result := map[string]any{"status": "sent", "fmsg_id": id, "recipients": recipients}
+	if len(body) > 10<<10 {
+		result["size_note"] = fmt.Sprintf("body is %d bytes — over the 10 KiB fmsg federation default; a cross-host recipient may bounce it as too big (delivery code 4)", len(body))
+	}
 	if delivery, derr := s.deliverySnapshot(ctx, id); derr == nil {
 		result["delivery"] = delivery
 	}
@@ -810,6 +1062,24 @@ func addPrompts(srv *mcp.Server) {
 	})
 
 	srv.AddPrompt(&mcp.Prompt{
+		Name:        "share_summary",
+		Title:       "Share a summary of this session via fmsg",
+		Description: "Summarise the current Claude session and share it as a single fmsg message.",
+		Arguments: []*mcp.PromptArgument{
+			{Name: "recipients", Description: "recipient fmsg address(es), comma-separated", Required: true},
+		},
+	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		recipients := req.Params.Arguments["recipients"]
+		text := fmt.Sprintf("Write a concise Markdown summary of this session (goal, work done, key decisions and why, "+
+			"current state, next steps), then call the share_summary tool to send it to %q. Show me its preview as a "+
+			"short multi-line list (from, recipients, title, size, redactions), then ask me simply \"Are you sure?\", "+
+			"and only after I say yes call share_summary again with the confirm_token.", recipients)
+		return &mcp.GetPromptResult{Messages: []*mcp.PromptMessage{
+			{Role: "user", Content: &mcp.TextContent{Text: text}},
+		}}, nil
+	})
+
+	srv.AddPrompt(&mcp.Prompt{
 		Name:        "continue_thread",
 		Title:       "Continue an fmsg thread",
 		Description: "Resume a Claude session seeded with an fmsg thread's ancestor history.",
@@ -830,6 +1100,15 @@ func addPrompts(srv *mcp.Server) {
 }
 
 // ---------------------------------------------------------------- misc
+
+func boolHint(b bool) *bool { return &b }
+
+// withTitle copies the shared annotation shape with a per-tool title.
+func withTitle(base *mcp.ToolAnnotations, title string) *mcp.ToolAnnotations {
+	a := *base
+	a.Title = title
+	return &a
+}
 
 func randomHex(n int) string {
 	b := make([]byte, n)

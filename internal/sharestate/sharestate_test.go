@@ -1,6 +1,10 @@
 package sharestate
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 func TestDelta(t *testing.T) {
 	bodies := []string{"one", "two", "three"}
@@ -48,7 +52,7 @@ func TestSameRecipients(t *testing.T) {
 func TestSaveLoadRoundTrip(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
-	if st, err := Load("no-such-session"); err != nil || st != nil {
+	if st, err := Load("no-such-session", ""); err != nil || st != nil {
 		t.Fatalf("missing state should be (nil, nil), got (%v, %v)", st, err)
 	}
 
@@ -62,12 +66,15 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err := Save(in); err != nil {
 		t.Fatal(err)
 	}
-	out, err := Load("abc-123")
+	out, err := Load("abc-123", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if out.ThreadRoot != 10 || out.LastFmsgID != 12 || len(out.ExchangeHashes) != 3 {
 		t.Fatalf("round trip mismatch: %+v", out)
+	}
+	if out.FormatVersion != CurrentFormat {
+		t.Fatalf("Save must stamp CurrentFormat, got %d", out.FormatVersion)
 	}
 
 	// Overwrite advances the chain.
@@ -76,8 +83,79 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err := Save(in); err != nil {
 		t.Fatal(err)
 	}
-	out, _ = Load("abc-123")
+	out, _ = Load("abc-123", "")
 	if out.LastFmsgID != 15 || len(out.ExchangeHashes) != 4 {
 		t.Fatalf("overwrite mismatch: %+v", out)
+	}
+}
+
+func TestLegacyStateKeepsFormatZero(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	// A pre-FormatVersion file unmarshals with FormatVersion 0, which is how
+	// the caller detects stale-format hashes and starts a fresh thread.
+	legacy := &State{SessionID: "old-1", ThreadRoot: 1, LastFmsgID: 2}
+	if err := Save(legacy); err != nil {
+		t.Fatal(err)
+	}
+	p, err := path("old-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stripped := strings.Replace(string(raw), `"format_version": 2,`, "", 1)
+	if stripped == string(raw) {
+		t.Fatal("fixture assumption broken: format_version not found in saved state")
+	}
+	if err := os.WriteFile(p, []byte(stripped), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Load("old-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.FormatVersion != 0 {
+		t.Fatalf("legacy state must load with FormatVersion 0, got %d", out.FormatVersion)
+	}
+}
+
+func TestSummaryKindSeparateFile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	tx := &State{SessionID: "abc-123", ThreadRoot: 10, LastFmsgID: 12,
+		Recipients: []string{"@kebbie@fmsg.io"}, ExchangeHashes: HashBodies([]string{"one"})}
+	sum := &State{SessionID: "abc-123", Kind: KindSummary, ThreadRoot: 20, LastFmsgID: 20,
+		Recipients: []string{"@kebbie@fmsg.io"}, SummaryCount: 1}
+	if err := Save(tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(sum); err != nil {
+		t.Fatal(err)
+	}
+
+	outTx, err := Load("abc-123", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	outSum, err := Load("abc-123", KindSummary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outTx.ThreadRoot != 10 || len(outTx.ExchangeHashes) != 1 || outTx.Kind != "" {
+		t.Fatalf("transcript state clobbered: %+v", outTx)
+	}
+	if outSum.ThreadRoot != 20 || outSum.SummaryCount != 1 || outSum.Kind != KindSummary {
+		t.Fatalf("summary state mismatch: %+v", outSum)
+	}
+
+	p, err := path("abc-123", KindSummary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(p, "abc-123.summary.json") {
+		t.Fatalf("summary state path: %s", p)
 	}
 }
