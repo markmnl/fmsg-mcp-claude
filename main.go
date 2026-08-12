@@ -64,6 +64,27 @@ type server struct {
 }
 
 func main() {
+	// The server itself takes no arguments (configuration is env vars), but
+	// recognise the conventional flags so `fmsg-mcp --version` answers which
+	// build is on disk instead of silently starting the stdio server.
+	for _, arg := range os.Args[1:] {
+		switch arg {
+		case "--version", "-v", "version":
+			fmt.Println("fmsg-mcp " + version)
+			return
+		case "--help", "-h", "help":
+			fmt.Printf(`fmsg-mcp %s — MCP stdio server sharing Claude sessions as fmsg threads.
+
+Runs as an MCP server over stdin/stdout; register it with your Claude client
+rather than invoking it directly (see https://github.com/markmnl/fmsg-mcp-claude).
+
+Configuration is via environment variables: FMSG_API_URL, FMSG_API_KEY,
+FMSG_CLI, FMSG_DEFAULT_DOMAIN, FMSG_DIRECTORY.
+`, version)
+			return
+		}
+	}
+
 	s := &server{
 		runner:  cli.NewRunnerFromEnv(version),
 		idCfg:   identity.FromEnv(),

@@ -82,6 +82,36 @@ That's it — everything needed is inside the bundle.
    {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "~/.claude/fmsg-mcp/session-start.sh"}]}]}}
    ```
 
+#### Windows
+
+Same three steps, adjusted for Windows paths (no `chmod`, and the hook script
+needs a POSIX shell — the Git Bash that ships with
+[Git for Windows](https://git-scm.com/download/win) works):
+
+1. Download `fmsg-mcp_windows_amd64.exe` from the
+   [latest release](https://github.com/markmnl/fmsg-mcp-claude/releases/latest)
+   to somewhere stable, e.g. `C:\Users\<you>\bin\fmsg-mcp.exe`.
+2. Register the server:
+
+   ```bat
+   claude mcp add fmsg ^
+     --env FMSG_API_URL=<your fmsg Web API URL> ^
+     --env FMSG_API_KEY=fmsgk_... ^
+     -- C:\Users\<you>\bin\fmsg-mcp.exe
+   ```
+
+3. Copy `hooks/session-start.sh` to
+   `C:\Users\<you>\.claude\fmsg-mcp\session-start.sh` and add to
+   `~/.claude/settings.json` (forward slashes, shell named explicitly):
+
+   ```json
+   {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "shell": "bash",
+     "command": "sh \"C:/Users/<you>/.claude/fmsg-mcp/session-start.sh\""}]}]}}
+   ```
+
+Release assets ship with a `SHA256SUMS` file to verify downloads against
+(`sha256sum -c` / `certutil -hashfile … SHA256`).
+
 ### Claude Web (claude.ai)
 
 Not yet — claude.ai only connects to *remote* MCP servers, and fmsg-mcp

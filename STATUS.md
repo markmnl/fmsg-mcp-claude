@@ -1,6 +1,6 @@
 # STATUS — where this project is and how it got here
 
-*Last updated: 2026-08-07. This is the orientation document: read it first.*
+*Last updated: 2026-08-13. This is the orientation document: read it first.*
 
 ## What exists and works
 
@@ -133,6 +133,23 @@ the global `--json` flag (also surfaces previously-dropped
   60s chain pacing can relax once that lands. **Both fixes deployed to
   fmsg.io and fmsg.live 2026-08-05** — cross-host chains unverified since;
   remember replies to pre-fix messages still bounce, test on new threads.
+
+## Field report (Windows 11, v0.4.1, 2026-08-13) — all four items fixed
+
+An external user report from a real Windows install. The one real bug:
+Claude Code's SessionStart payload JSON-escapes `cwd` (`C:\\Users\\…`), so
+the hook slugged the escaped form (two dashes per separator) while
+`locator.Slug` slugs the real path — `readPointer` always missed and
+`Locate` silently fell back to mtime, picking the wrong transcript whenever
+several sessions shared a project dir. Fix: the hook unescapes `\\` in `cwd`
+only, before slugging; `transcript_path` must stay escaped because it is
+re-emitted into the pointer JSON (unescaped `\U` is invalid JSON and
+`readPointer` rejects it — the reporter hit that failure mode too). Also
+from the report: README gained a Windows subsection for Claude Code (Git
+Bash + explicit shell in the hook entry, `.exe` install, no chmod);
+`--version`/`--help` flags added (previously any argv silently started the
+stdio server); release workflow now publishes `SHA256SUMS` (generated after
+mcpb signing, which rewrites bundles).
 
 ## Remaining work, in priority order
 

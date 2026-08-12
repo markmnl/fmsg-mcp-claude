@@ -16,6 +16,13 @@ get() {
 session_id=$(get session_id)
 transcript_path=$(get transcript_path)
 cwd=$(get cwd)
+# The payload is JSON, so Windows path separators arrive as \\ — unescape them
+# or the slug below gets two dashes per separator and never matches the one
+# locator.Slug computes from the real path (readPointer would silently miss
+# and Locate would fall back to mtime, picking the wrong transcript when
+# several sessions share a project dir). transcript_path must STAY escaped:
+# it is re-emitted into JSON below, where a lone \U is an invalid escape.
+cwd=$(printf '%s' "$cwd" | sed 's/\\\\/\\/g')
 [ -n "$cwd" ] || cwd=$(pwd)
 [ -n "$transcript_path" ] || exit 0
 

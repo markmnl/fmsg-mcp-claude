@@ -123,7 +123,12 @@ jobs:
             mcpb verify "$b"
           done
 
+      # Checksums cover the final assets, so this must run after signing
+      # (mcpb sign rewrites the bundles).
+      - name: Generate checksums
+        run: (cd dist && sha256sum fmsg-mcp_* *.mcpb > SHA256SUMS && cat SHA256SUMS)
+
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" dist/fmsg-mcp_* dist/*.mcpb --clobber
+        run: gh release upload "$TAG" dist/fmsg-mcp_* dist/*.mcpb dist/SHA256SUMS --clobber
