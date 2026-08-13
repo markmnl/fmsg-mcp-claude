@@ -163,6 +163,16 @@ release body (v0.4.2's edited by hand). Also reported, not actionable here:
 GitHub's release Assets panel intermittently failed to render
 (`/releases/expanded_assets/<tag>` worked).
 
+**Dogfood update to v0.4.3 (own Linux install, 2026-08-13)** surfaced three
+README gaps, all fixed: no Updating section (and the hook is easy to forget
+— fixes sometimes land there, not in the binary); the hook install said
+`cp hooks/…`, presuming a repo clone binary installers don't have (now a
+raw-URL curl); `claude mcp add` without `--scope user` registers
+per-project, so fmsg silently doesn't exist elsewhere (README now recommends
+user scope). Incidental observation, not user-facing: the stdio server
+exits without responding if a script writes all input and closes stdin
+immediately — hold the pipe open when driving it programmatically.
+
 ## Remaining work, in priority order
 
 *(Done 2026-08-05: repo pushed to github.com/markmnl/fmsg-mcp-claude,

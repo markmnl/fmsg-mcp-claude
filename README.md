@@ -59,10 +59,11 @@ That's it — everything needed is inside the bundle.
    download `fmsg-mcp_<os>_<arch>` for your platform, put it somewhere like
    `~/bin/fmsg-mcp`, and `chmod +x` it. That's the only file — the fmsg CLI it
    uses is built in.
-2. Register the server:
+2. Register the server (`--scope user` makes fmsg available in every
+   project; drop it to register for the current project only):
 
    ```sh
-   claude mcp add fmsg \
+   claude mcp add fmsg --scope user \
      --env FMSG_API_URL=<your fmsg Web API URL> \
      --env FMSG_API_KEY=fmsgk_... \
      -- ~/bin/fmsg-mcp
@@ -73,7 +74,8 @@ That's it — everything needed is inside the bundle.
 
    ```sh
    mkdir -p ~/.claude/fmsg-mcp
-   cp hooks/session-start.sh ~/.claude/fmsg-mcp/ && chmod +x ~/.claude/fmsg-mcp/session-start.sh
+   curl -fsSL https://raw.githubusercontent.com/markmnl/fmsg-mcp-claude/main/hooks/session-start.sh \
+     -o ~/.claude/fmsg-mcp/session-start.sh && chmod +x ~/.claude/fmsg-mcp/session-start.sh
    ```
 
    and add to `~/.claude/settings.json`:
@@ -100,8 +102,9 @@ needs a POSIX shell — the Git Bash that ships with
      -- C:\Users\<you>\bin\fmsg-mcp.exe
    ```
 
-3. Copy `hooks/session-start.sh` to
-   `C:\Users\<you>\.claude\fmsg-mcp\session-start.sh` and add to
+3. Download
+   [`hooks/session-start.sh`](https://raw.githubusercontent.com/markmnl/fmsg-mcp-claude/main/hooks/session-start.sh)
+   to `C:\Users\<you>\.claude\fmsg-mcp\session-start.sh` and add to
    `~/.claude/settings.json` (forward slashes, shell named explicitly):
 
    ```json
@@ -111,6 +114,14 @@ needs a POSIX shell — the Git Bash that ships with
 
 Release assets ship with a `SHA256SUMS` file to verify downloads against
 (`sha256sum -c` / `certutil -hashfile … SHA256`).
+
+#### Updating
+
+`fmsg-mcp --version` reports the installed build (v0.4.2+; older builds
+print nothing). To update, repeat step 1 — overwrite the binary in place and
+the existing registration keeps working — and re-download the session hook
+(step 3): fixes sometimes land in the hook script, not the binary. On Claude
+Desktop, just install the new `.mcpb` bundle over the old one.
 
 ### Claude Web (claude.ai)
 
