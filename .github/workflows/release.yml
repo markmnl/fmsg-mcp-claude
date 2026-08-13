@@ -132,3 +132,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" dist/fmsg-mcp_* dist/*.mcpb dist/SHA256SUMS --clobber
+
+      # The two asset kinds are not self-explanatory from filenames alone
+      # (field report 2026-08-13): append a mapping to the release body,
+      # once — a workflow_dispatch re-run must not duplicate it.
+      - name: Append asset guide to release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          header="## Which asset do I want?"
+          body=$(gh release view "$TAG" --json body --jq .body)
+          case "$body" in *"$header"*) echo "guide already present"; exit 0 ;; esac
+          {
+            printf '%s\n\n%s\n' "$body" "$header"
+            printf '%s\n' \
+              '- **Claude Desktop** → the `fmsg-<platform>.mcpb` bundle for your platform (double-click to install).' \
+              '- **Claude Code** → the `fmsg-mcp_<os>_<arch>` binary for your platform (see the [README](https://github.com/markmnl/fmsg-mcp-claude#claude-code-linux--macos--windows)).' \
+              '- `SHA256SUMS` → checksums for every asset above.'
+          } | gh release edit "$TAG" --notes-file -

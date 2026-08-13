@@ -1043,6 +1043,9 @@ func (s *server) whoami(ctx context.Context, req *mcp.CallToolRequest, args stru
 	out := map[string]any{"address": w.Address, "api_url": w.APIURL, "auth_type": w.AuthType}
 	if w.ExpiresAt != "" {
 		out["expires_at"] = w.ExpiresAt
+		// Field report 2026-08-13: a ~12h expiry read as "my key is about to
+		// die". It's the session token, rotated without user action.
+		out["expires_note"] = "expiry of the short-lived session token exchanged from your API key; fmsg-cli rotates it automatically — the API key itself does not expire"
 	}
 	if w.Address == "" {
 		out["note"] = "address not locally knowable: the API key's granted address lives server-side and nothing has been sent yet; it will be known after the first share (fmsg-cli lacks a whoami command — upstream ask)"

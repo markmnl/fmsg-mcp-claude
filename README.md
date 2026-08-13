@@ -167,6 +167,11 @@ beginning they can't read.
 | `FMSG_DEFAULT_DOMAIN` | — | Lets short names resolve: `bob` → `@bob@<domain>` |
 | `FMSG_DIRECTORY` | — | JSON file mapping short names to full addresses |
 
+Your API key is the durable credential: it is exchanged for a short-lived
+session token (hours) that the bundled fmsg-cli rotates automatically. The
+`expires_at` that `whoami` reports is that token's expiry, not your key's —
+no action is needed when it passes.
+
 ## Development
 
 ```sh

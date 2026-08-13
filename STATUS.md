@@ -151,6 +151,18 @@ Bash + explicit shell in the hook entry, `.exe` install, no chmod);
 stdio server); release workflow now publishes `SHA256SUMS` (generated after
 mcpb signing, which rewrites bundles).
 
+**Second field report (macOS arm64, v0.4.2 .mcpb on Claude Desktop,
+2026-08-13):** clean install, full loopback share/resume verified. Friction
+addressed: the `whoami` `expires_at` (~12h) read as an expiring credential —
+it is the session token exchanged from the API key, rotated automatically by
+fmsg-cli (by design, user-confirmed); `whoami` now says so in an
+`expires_note` and the README documents it. Release asset names
+(`fmsg-<platform>.mcpb` vs `fmsg-mcp_<os>_<arch>`) were ambiguous — the
+release workflow now appends a "Which asset do I want?" mapping to every
+release body (v0.4.2's edited by hand). Also reported, not actionable here:
+GitHub's release Assets panel intermittently failed to render
+(`/releases/expanded_assets/<tag>` worked).
+
 ## Remaining work, in priority order
 
 *(Done 2026-08-05: repo pushed to github.com/markmnl/fmsg-mcp-claude,
