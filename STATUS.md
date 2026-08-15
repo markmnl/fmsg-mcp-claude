@@ -112,7 +112,11 @@ CLI with `watch` is embedded.
     a loop: `wait_for_message` (blocks until a qualifying inbound message,
     returns body + lineage context) → `reply_to_thread` → (keep) wait again.
     The server has no LLM and stdio can't push, so the loop lives in the
-    model, steered by the tool description and the `chat` prompt. Arrival is
+    model, steered by the tool description and the `chat` prompt. Messages
+    arriving in quick succession on one thread are **batched** (settle
+    window, default 3 s, `settle_seconds`; cap 20) into one result and get
+    one reply to the newest id (user decision 2026-08-15 — a sender who
+    splits a thought over several messages must not get several replies). Arrival is
     **`fmsg watch` over the webapi WebSocket** (user decision — extend the
     CLI rather than talk to the webapi; decision 1 holds), with a `list`
     catch-up on connect/reconnect and a 2 s poll fallback for CLIs without

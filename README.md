@@ -179,7 +179,9 @@ and Claude arms itself accordingly. Continuous chat only ever runs inside
 one thread (never "reply to everyone forever"), skips your own and
 `no_reply` messages, and stops when you interrupt, after 20 replies, or
 after 30 minutes with nothing arriving (say the numbers if you want other
-caps; `/fmsg:chat` takes them as arguments). Replies in chat mode are sent
+caps; `/fmsg:chat` takes them as arguments). Several messages sent in quick
+succession are gathered (a few seconds' settle window) and answered with one
+reply. Replies in chat mode are sent
 without a preview — your instruction to chat is the approval — but secrets
 are still redacted from every reply. Messages arrive over the WebSocket of
 your fmsg host via `fmsg watch` (needs fmsg-cli with the `watch` command,

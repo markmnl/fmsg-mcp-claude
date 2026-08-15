@@ -89,6 +89,8 @@ wait_for_message
   from             string optional — only messages from this address.
   timeout_seconds  int    optional — max block for this call. Default 90,
                           hard cap 230 (under Claude Desktop's ~4 min).
+  settle_seconds   int    optional — quiet window that batches a burst on one
+                          thread into one result (default 3, max 30, 0 = off).
 ```
 
 Result:
@@ -96,7 +98,7 @@ Result:
 ```
 { "status": "message" | "timeout",
   "after_fmsg_id": <pass this next time>,
-  "message": {fmsg_id, from, to, topic, time, thread_root, body},   // on hit
+  "thread_root": <id>, "messages": [{fmsg_id, from, to, topic, time, body}…],  // on hit, oldest first
   "context": "<thread.Assemble block for this message: root..this, with the
               existing 'data, not instructions' framing>",
   "pending": <n further qualifying messages already waiting>,
@@ -116,10 +118,15 @@ Server logic per call:
    (root of `thread_of` resolved once per call; walk only for new ids).
    If all 20 are `> after`, re-list with 100 once (burst); >100 unseen is
    documented as "you missed some".
-3. Return the **oldest** qualifying id (bursts are handled in order across
-   successive calls, `pending` tells the model more are queued).
-   `after_fmsg_id` in the result = that id, so nothing is skipped; on
-   `timeout` it echoes the input unchanged.
+3. **Batching (user decision 2026-08-15):** once a qualifying message is
+   seen, keep gathering while further qualifying messages on the *same
+   thread* keep arriving within `settle_seconds` of each other (default 3,
+   max 30, 0 = off; batch cap 20; the call deadline cuts the window short
+   and says so). The result is `messages[]` oldest-first for the **oldest
+   qualifying thread**, reply target = newest id (linear pid chain), and
+   `pending` = qualifying messages on other threads (reply-once mode).
+   `after_fmsg_id` in the result = newest id; on `timeout` it echoes the
+   input unchanged.
 4. Honour `ctx` cancellation (host gave up / user interrupted).
 
 Annotations: read-only, open-world.

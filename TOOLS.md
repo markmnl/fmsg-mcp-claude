@@ -193,12 +193,17 @@ argument.
 | `thread_of` | optional: only messages whose pid chain reaches this message's root (keep-replying mode) |
 | `from` | optional: only this sender |
 | `timeout_seconds` | max block per call (default 90, cap 230 — under Claude Desktop's ~4 min tool limit) |
+| `settle_seconds` | quiet window after the first message: further messages on the same thread arriving within it are batched (default 3, max 30, 0 = return on the first) |
 
-Result: `status` (`message` \| `timeout`), `after_fmsg_id`, `message`
-(`fmsg_id, from, to, topic, time, thread_root, body`), `context`
-(`thread.Assemble` block), `pending` (further qualifying messages already
-waiting — bursts are answered oldest-first across calls), `transport`
-(`websocket` via `fmsg watch`, or `poll` fallback), `next` (what to call).
+Result: `status` (`message` \| `timeout`), `after_fmsg_id` (= newest in the
+batch), `thread_root`, `messages[]` (`fmsg_id, from, to, topic, time, body`,
+oldest first — a burst on one thread comes back as ONE result and gets ONE
+reply, to the newest id, keeping the pid chain linear), `context`
+(`thread.Assemble` block for the newest), `pending` (qualifying messages on
+*other* threads still waiting — the batch is always the oldest thread's;
+reply-once mode only), `transport` (`websocket` via `fmsg watch`, or `poll`
+fallback), `next` (what to call), `note` when the call's time limit cut the
+settle window short. Batch cap 20.
 Own messages and `no_reply` messages never qualify. Arrival: `fmsg --json
 watch --events new_msg` streamed as a subprocess (`cli.Runner.Watch`), with a
 `list` catch-up on start and after every `ready` (reconnect) marker; CLIs

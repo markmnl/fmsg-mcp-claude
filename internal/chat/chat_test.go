@@ -89,8 +89,10 @@ func TestCatchUpReturnsOldestQualifyingAndPending(t *testing.T) {
 	if !usedWatch {
 		t.Error("expected watch path")
 	}
-	// 10, 12, 20 qualify (11 is ours); oldest is 10, two more pending.
-	if hit.ID != 10 || hit.Pending != 2 || hit.ThreadRoot != 10 || hit.Body != "body of 10" {
+	// 10, 12, 20 qualify (11 is ours). Batch = oldest thread (root 10): 10
+	// and 12; 20 is on another thread → pending.
+	if len(hit.Messages) != 2 || hit.Messages[0].ID != 10 || hit.Messages[1].ID != 12 ||
+		hit.Newest != 12 || hit.Pending != 1 || hit.ThreadRoot != 10 || hit.Messages[0].Body != "body of 10" {
 		t.Fatalf("hit = %+v", hit)
 	}
 	if hit.Context == "" {
@@ -104,12 +106,12 @@ func TestThreadFilterExcludesOtherThreadsAndRoots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hit.ID != 12 || hit.Pending != 0 {
+	if hit.Newest != 12 || len(hit.Messages) != 1 || hit.Pending != 0 {
 		t.Fatalf("hit = %+v (20 is another thread and must be excluded)", hit)
 	}
 	// ThreadOf may be any message on the thread, not just the root.
 	hit, _, err = wait(t, f, Filter{After: 11, ThreadOf: 11}, time.Second)
-	if err != nil || hit.ID != 12 {
+	if err != nil || hit.Newest != 12 {
 		t.Fatalf("hit = %+v, err = %v", hit, err)
 	}
 }
@@ -117,7 +119,7 @@ func TestThreadFilterExcludesOtherThreadsAndRoots(t *testing.T) {
 func TestFromFilterAndNoReplyAndSelf(t *testing.T) {
 	f := newFake()
 	hit, _, err := wait(t, f, Filter{After: 9, From: "@CAROL@x"}, time.Second)
-	if err != nil || hit.ID != 20 {
+	if err != nil || hit.Newest != 20 {
 		t.Fatalf("hit = %+v err = %v", hit, err)
 	}
 	f.msgs[20].NoReply = true
@@ -144,7 +146,7 @@ func TestWatchEventTriggersHit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !usedWatch || hit.ID != 30 || time.Since(start) > 2*time.Second {
+	if !usedWatch || hit.Newest != 30 || time.Since(start) > 2*time.Second {
 		t.Fatalf("hit = %+v usedWatch=%v elapsed=%s", hit, usedWatch, time.Since(start))
 	}
 }
@@ -157,7 +159,7 @@ func TestReadyEventTriggersCatchUp(t *testing.T) {
 		f.events <- cli.WatchEvent{Type: cli.EventReady}
 	}()
 	hit, _, err := wait(t, f, Filter{After: 20}, 5*time.Second)
-	if err != nil || hit.ID != 21 {
+	if err != nil || hit.Newest != 21 {
 		t.Fatalf("hit = %+v err = %v", hit, err)
 	}
 }
@@ -173,7 +175,7 @@ func TestPollFallbackWithoutWatch(t *testing.T) {
 		f.add(21, "@carol@x", pid(20))
 	}()
 	hit, usedWatch, err := wait(t, f, Filter{After: 20}, 5*time.Second)
-	if err != nil || hit.ID != 21 || usedWatch {
+	if err != nil || hit.Newest != 21 || usedWatch {
 		t.Fatalf("hit = %+v usedWatch=%v err = %v", hit, usedWatch, err)
 	}
 	if f.lists < 2 {
@@ -193,9 +195,83 @@ func TestWatchChannelCloseFallsBackToPolling(t *testing.T) {
 		f.add(21, "@carol@x", pid(20))
 	}()
 	hit, usedWatch, err := wait(t, f, Filter{After: 20}, 5*time.Second)
-	if err != nil || hit.ID != 21 || usedWatch {
+	if err != nil || hit.Newest != 21 || usedWatch {
 		t.Fatalf("hit = %+v usedWatch=%v err = %v", hit, usedWatch, err)
 	}
+}
+
+func TestSettleBatchesRapidMessagesOnOneThread(t *testing.T) {
+	f := newFake()
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		f.add(30, "@bob@x", pid(12))
+		f.push(30)
+		time.Sleep(100 * time.Millisecond)
+		f.add(31, "@bob@x", pid(30))
+		f.push(31)
+		time.Sleep(100 * time.Millisecond)
+		f.add(32, "@bob@x", pid(31))
+		f.push(32)
+		time.Sleep(100 * time.Millisecond)
+		f.add(40, "@carol@x", pid(20)) // other thread: must not join the batch
+		f.push(40)
+	}()
+	start := time.Now()
+	hit, _, err := wait(t, f, Filter{After: 20, ThreadOf: 10, Settle: 300 * time.Millisecond}, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := []int64{}
+	for _, m := range hit.Messages {
+		ids = append(ids, m.ID)
+	}
+	if len(ids) != 3 || ids[0] != 30 || ids[2] != 32 || hit.Newest != 32 || !hit.Settled || hit.Pending != 0 {
+		t.Fatalf("batch = %v newest=%d settled=%v pending=%d", ids, hit.Newest, hit.Settled, hit.Pending)
+	}
+	if el := time.Since(start); el < 500*time.Millisecond || el > 2*time.Second {
+		t.Errorf("elapsed %s: should be ~last arrival (350ms) + settle (300ms)", el)
+	}
+	if hit.Context == "" || !contains(hit.Context, "body of 30") || !contains(hit.Context, "body of 32") {
+		t.Errorf("context should carry the batch's lineage: %q", hit.Context)
+	}
+}
+
+func TestSettleZeroReturnsImmediatelyAndBatchCap(t *testing.T) {
+	f := newFake()
+	start := time.Now()
+	hit, _, err := wait(t, f, Filter{After: 9, ThreadOf: 10}, 5*time.Second) // 10 and 12 already there
+	if err != nil || len(hit.Messages) != 2 || time.Since(start) > time.Second {
+		t.Fatalf("hit = %+v err = %v elapsed=%s", hit, err, time.Since(start))
+	}
+	hit, _, err = wait(t, f, Filter{After: 9, ThreadOf: 10, MaxBatch: 1, Settle: 5 * time.Second}, 5*time.Second)
+	if err != nil || len(hit.Messages) != 1 || hit.Newest != 10 || hit.Pending != 1 || time.Since(start) > 2*time.Second {
+		t.Fatalf("cap: hit = %+v err = %v", hit, err)
+	}
+}
+
+func TestDeadlineDuringSettleReturnsPartialBatch(t *testing.T) {
+	f := newFake()
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		f.add(30, "@bob@x", pid(12))
+		f.push(30)
+	}()
+	hit, _, err := wait(t, f, Filter{After: 20, ThreadOf: 10, Settle: 10 * time.Second}, 400*time.Millisecond)
+	if err != nil || len(hit.Messages) != 1 || hit.Settled {
+		t.Fatalf("hit = %+v err = %v (deadline should cut the settle window, not time out)", hit, err)
+	}
+}
+
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(sub) == 0 || indexOf(s, sub) >= 0)
+}
+func indexOf(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
 }
 
 func TestTimeoutAndCancel(t *testing.T) {
