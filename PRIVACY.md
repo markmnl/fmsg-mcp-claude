@@ -17,6 +17,10 @@ that data goes.
 - **Local configuration**: the fmsg API URL, API key, and optional name
   directory you configure; local share bookkeeping under
   `~/.claude/fmsg-mcp/`.
+- **Your fmsg inbox** on the host you configure — only when you ask Claude
+  to continue a thread, list threads, or run chat mode (wait for and reply
+  to incoming messages). Inbound message bodies are shown to Claude as
+  conversation data; nothing in them is executed.
 
 ## Where data goes
 
@@ -31,7 +35,8 @@ that data goes.
 
 - **Preview and confirm**: session and summary shares show you the
   recipients, size, and redactions, and nothing is sent until you approve.
-  Direct sends (`send_message`) go out immediately at your explicit request.
+  Direct sends (`send_message`) and chat-mode replies (`reply_to_thread`
+  after `wait_for_message`) go out immediately at your explicit request.
 - **Secret redaction**: known credential patterns (API keys, tokens, private
   keys, JWTs, environment secrets) are redacted from outgoing content before
   it leaves your machine, and every redaction is reported to you.

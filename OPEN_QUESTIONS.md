@@ -106,7 +106,7 @@ Same-host MVP is unaffected (webapi 10/10/20 MB budget; shared row IDs).
 6. **Bug: URL-escape attachment filenames** in `get-attach`/`rm-attach`
    (`internal/api/client.go:463,493`) — spaces and reserved characters break.
 7. **`fmsg whoami`** — print authenticated address, API URL, auth type, expiry.
-8. **`fmsg watch`** — wrap `GET /fmsg/ws` (`new_msg` etc.) for scripts/agents.
+8. ~~**`fmsg watch`** — wrap `GET /fmsg/ws` (`new_msg` etc.) for scripts/agents.~~ Built 2026-08-15 (fmsg-cli PR #14).
 9. **Sub-account ergonomics** — act-as support (webapi already has `X-FMSG-Act-As`),
    and optional CIDR restriction on `sub-accounts create`.
 10. **Promote `internal/api` to a public Go package** — typed client for Go

@@ -1,6 +1,6 @@
 # STATUS — where this project is and how it got here
 
-*Last updated: 2026-08-13. This is the orientation document: read it first.*
+*Last updated: 2026-08-15. This is the orientation document: read it first.*
 
 ## What exists and works
 
@@ -9,18 +9,21 @@ unit-tested, and partially live-tested** against real fmsg hosts. Tools:
 `share_session` (two-phase preview→confirm), `share_summary` (two-phase,
 model-authored single-message summary), `send_message` (immediate standalone
 send), `continue_thread`, `reply_to_thread`, `list_threads`,
-`delivery_status`, `whoami`, `resolve_address`; MCP prompts `share_session`,
-`share_summary` and `continue_thread` (Claude Code slash commands). Release automation
+`wait_for_message` (chat mode, decision 12), `delivery_status`, `whoami`,
+`resolve_address`; MCP prompts `share_session`, `share_summary`,
+`continue_thread` and `chat` (Claude Code slash commands). Release automation
 (`.github/workflows/release.yml`) builds platform binaries with the fmsg CLI
 **embedded** (`-tags embedcli`, extracted to the user cache dir at runtime)
 plus Claude Desktop `.mcpb` bundles (manifest_version 0.3, verified against
 the MCPB spec; dry-run assembled locally, not yet installed on a real
 Desktop).
 
-Upstream fmsg-cli changes this project produced, **both merged to main**:
-the global `--json` flag (also surfaces previously-dropped
-`to_delivery`/`read`/`time_read`/`batch_id` and the attach response) and
-`fmsg whoami`.
+Upstream fmsg-cli changes this project produced: the global `--json` flag
+(also surfaces previously-dropped `to_delivery`/`read`/`time_read`/`batch_id`
+and the attach response) and `fmsg whoami`, **both merged to main**; and
+`fmsg watch` (WebSocket event stream, fmsg-cli PR #14 + fmsg-docker test 010
+PR #17, **open 2026-08-15**) — the MCP falls back to polling `list` until a
+CLI with `watch` is embedded.
 
 ## Decisions made (chronological, with rationale)
 
@@ -102,6 +105,33 @@ the global `--json` flag (also surfaces previously-dropped
     topic, with hits reported in the result since there is no preview.
     Replies stay `reply_to_thread`'s job; `send_message` always starts a
     new thread (topic defaults to the body's first line).
+
+12. **Chat mode (2026-08-15, user-requested; design in CHAT_MODE.md):**
+    "converse / chat / keep talking / auto-reply / respond to the next
+    message" → the model decides *once* vs *keep* from the wording and drives
+    a loop: `wait_for_message` (blocks until a qualifying inbound message,
+    returns body + lineage context) → `reply_to_thread` → (keep) wait again.
+    The server has no LLM and stdio can't push, so the loop lives in the
+    model, steered by the tool description and the `chat` prompt. Arrival is
+    **`fmsg watch` over the webapi WebSocket** (user decision — extend the
+    CLI rather than talk to the webapi; decision 1 holds), with a `list`
+    catch-up on connect/reconnect and a 2 s poll fallback for CLIs without
+    `watch`. Per-call block capped at 230 s (Claude Desktop kills tool calls
+    at ~4 min; Claude Code's default is ~28 h) — the model re-calls on
+    `timeout`. **Replies are sent with no preview** — a second explicit
+    exception to decision 5 with decision 11's rationale (the arming
+    instruction is the intent) — but always redacted; guardrails: continuous
+    mode only within one thread (`thread_of`), own/`no_reply` messages never
+    qualify, caps `max_replies` 20 / `max_wait_minutes` 30 enforced by the
+    model via the prompt, injection framing added to `thread.Assemble`.
+    Found and fixed alongside: `reply_to_thread` had been sending bodies
+    **unredacted** (invariant breach, now redacts + reports `redactions`).
+    Verified live cross-host (fmsg.io↔fmsg.live) over stdio JSON-RPC:
+    timeout path, WebSocket arrival in ~8 s, redacted reply, keep-mode wait
+    catching the chained reply. Deferred (Track B in CHAT_MODE.md): Claude
+    Code *channels* push (`notifications/claude/channel`, research preview
+    behind `--dangerously-load-development-channels`) to remove idle
+    round-trips.
 
 ## Live-testing findings (fmsg.live / fmsg.io, 2026-08-04)
 
@@ -203,11 +233,15 @@ merged and deployed to both live stacks.)*
    rejected the documented confirm-only call (recipients lacked
    omitempty). Remaining nicety: a scheduled GitHub Actions run of the
    fmsg-docker suite (it's currently run manually).
-4. **Upstream by leverage**: `fmsg watch` over the WebSocket (#8 — prerequisite for v2 live threads);
+4. **Upstream by leverage**: ~~`fmsg watch` over the WebSocket (#8)~~ built
+   2026-08-15 (fmsg-cli PR #14) — merge, then re-embed in the release build
+   and add an fmsg-docker chat e2e (011: two MCP instances / MCP + CLI over
+   `wait_for_message` → `reply_to_thread`);
    thread/children endpoints (#2, #11); distinct exit codes (#5);
    `get-attach` URL-escape bug (#6); address lookup via fmsgid (#14);
    hash exposure (#3).
-5. **v2 features**: live-thread pull/watch tool; hosted remote-MCP variant
+5. **v2 features**: ~~live-thread pull/watch tool~~ (chat mode, decision 12);
+   Track B channel push (CHAT_MODE.md §3.5); hosted remote-MCP variant
    so claude.ai (Web) works — currently a README roadmap promise; the
    Go-package refactor replacing the subprocess + embed (#10); async
    delivery outcomes surfaced at the next prompt via a UserPromptSubmit
