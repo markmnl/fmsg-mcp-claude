@@ -109,3 +109,63 @@ func TestDraftCreateArgOrder(t *testing.T) {
 		t.Fatalf("argv: %q want %q", argv, want)
 	}
 }
+
+// scriptCLI writes an arbitrary shell script as the fmsg binary.
+func scriptCLI(t *testing.T, body string) *Runner {
+	t.Helper()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "fmsg")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return &Runner{Bin: bin, Dir: dir, Env: []string{"PATH=/usr/bin:/bin"}}
+}
+
+func TestWatchStreamsEventsAndStopsOnCancel(t *testing.T) {
+	r := scriptCLI(t, `echo "$@" >&2
+echo '{"type":"ready"}'
+echo '{"type":"new_msg","data":{"id":5,"from":"@bob@example.com"}}'
+echo 'garbage line'
+echo '{"type":"delivered","data":{"id":6}}'
+sleep 30
+`)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, err := r.Watch(ctx, EventNewMsg, EventDelivered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var types []string
+	for ev := range ch {
+		types = append(types, ev.Type)
+		if ev.Type == EventNewMsg {
+			it, err := ev.Item()
+			if err != nil || it.ID != 5 || it.From != "@bob@example.com" {
+				t.Fatalf("item: %+v %v", it, err)
+			}
+		}
+		if len(types) == 3 {
+			cancel()
+		}
+	}
+	if len(types) != 3 || types[0] != EventReady || types[1] != EventNewMsg || types[2] != EventDelivered {
+		t.Fatalf("types: %v", types)
+	}
+}
+
+func TestWatchReportsMissingCommand(t *testing.T) {
+	r := scriptCLI(t, "echo 'Error: unknown command \"watch\" for \"fmsg\"' >&2\nexit 1\n")
+	_, err := r.Watch(context.Background())
+	if !errors.Is(err, ErrNoWatch) {
+		t.Fatalf("err = %v, want ErrNoWatch", err)
+	}
+}
+
+func TestWatchReportsAuthFailure(t *testing.T) {
+	r := scriptCLI(t, "echo 'missing credentials; run fmsg login' >&2\nexit 1\n")
+	_, err := r.Watch(context.Background())
+	var ce *Error
+	if !errors.As(err, &ce) || ce.Code != "not_logged_in" {
+		t.Fatalf("err = %v, want not_logged_in", err)
+	}
+}

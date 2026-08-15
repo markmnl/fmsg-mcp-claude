@@ -30,7 +30,9 @@ gofmt -l . && go vet ./...
 - CLI argv: `--json` first; flags before any negative message index; message
   bodies passed as temp-file paths, never inline text.
 - Never bypass the two-phase preview/confirm for session/summary shares;
-  `send_message` is the agreed immediate-send exception (STATUS decision 11).
+  `send_message` (STATUS decision 11) and chat-mode replies via
+  `wait_for_message` → `reply_to_thread` (decision 12) are the agreed
+  immediate-send exceptions.
   Never bypass the redaction pass anywhere. Keep the
   user-facing framing to a simple "are you sure you want to send?" — the
   immutability fact ("cannot be edited or recalled") is background, not a

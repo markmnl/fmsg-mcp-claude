@@ -180,12 +180,43 @@ case without this tool.
   (literal → `FMSG_DIRECTORY` → `@<name>@$FMSG_DEFAULT_DOMAIN`): returns
   `{address, resolution}` without sending anything.
 
+## 5b. `wait_for_message` (chat mode, v0.5)
+
+*Shipped design, not superseded.* Blocks until the next inbound message
+qualifying under a filter arrives, then returns it plus its lineage context
+so the model replies with `reply_to_thread`. Stateless — every filter is an
+argument.
+
+| Arg | Meaning |
+|---|---|
+| `after_fmsg_id` | only ids strictly greater qualify; result echoes the next value |
+| `thread_of` | optional: only messages whose pid chain reaches this message's root (keep-replying mode) |
+| `from` | optional: only this sender |
+| `timeout_seconds` | max block per call (default 90, cap 230 — under Claude Desktop's ~4 min tool limit) |
+| `settle_seconds` | quiet window after the first message: further messages on the same thread arriving within it are batched (default 3, max 30, 0 = return on the first) |
+
+Result: `status` (`message` \| `timeout`), `after_fmsg_id` (= newest in the
+batch), `thread_root`, `messages[]` (`fmsg_id, from, to, topic, time, body`,
+oldest first — a burst on one thread comes back as ONE result and gets ONE
+reply, to the newest id, keeping the pid chain linear), `context`
+(`thread.Assemble` block for the newest), `pending` (qualifying messages on
+*other* threads still waiting — the batch is always the oldest thread's;
+reply-once mode only), `transport` (`websocket` via `fmsg watch`, or `poll`
+fallback), `next` (what to call), `note` when the call's time limit cut the
+settle window short. Batch cap 20.
+Own messages and `no_reply` messages never qualify. Arrival: `fmsg --json
+watch --events new_msg` streamed as a subprocess (`cli.Runner.Watch`), with a
+`list` catch-up on start and after every `ready` (reconnect) marker; CLIs
+without `watch` poll `list` every 2 s. Reply path is the ordinary
+`reply_to_thread`, which redacts.
+
 ## 6. MCP prompts (Claude Code slash commands)
 
 | Prompt | Surfaces as | Body |
 |---|---|---|
 | `share_session` | `/fmsg:share_session [recipient]` | "Share this session with {recipient} via fmsg: call share_session, present the preview (recipients, size, redactions, immutability warning), and on my approval re-invoke with the confirm_token." |
 | `continue_thread` | `/fmsg:continue_thread [id]` | "Call continue_thread with fmsg_id {id \| -1} and continue the conversation from the returned context." |
+| `chat` | `/fmsg:chat [mode] [thread] [from] [max_replies] [max_wait_minutes]` | Arms chat mode: establish `after_fmsg_id`, loop `wait_for_message` → one-line report → `reply_to_thread` (→ wait again in `keep` mode); stop on interrupt / `max_replies` (20) / `max_wait_minutes` (30). `mode` defaults to `keep` when a thread is given, else `once`. |
 
 Tools remain the universal path on surfaces without slash commands.
 

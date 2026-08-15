@@ -147,9 +147,14 @@ Just ask Claude, in any session:
 - *"Reply to that thread: we shipped the fix"* — sends a Markdown reply to
   all participants.
 - *"Did my share reach everyone?"* — per-recipient delivery status.
+- *"Reply to whatever `@kebbie@fmsg.io` sends next"* / *"Keep chatting in
+  that thread until I say stop"* — **chat mode**: Claude waits for the next
+  inbound message (pushed over your host's WebSocket), replies on your
+  behalf, and — if you asked it to keep going — waits again for each reply
+  in that thread. See below.
 
 In Claude Code these are also slash commands: `/fmsg:share_session`,
-`/fmsg:share_summary` and `/fmsg:continue_thread`.
+`/fmsg:share_summary`, `/fmsg:continue_thread` and `/fmsg:chat`.
 
 **How shares work:** one Markdown fmsg message per prompt, chained with
 fmsg's reply links — the thread mirrors your conversation, so recipients can
@@ -167,6 +172,22 @@ long sessions never get resent from the top. This happens automatically when
 the recipients are the same; a different audience (or a session whose earlier
 content changed) starts a fresh full thread, so nobody receives a tail whose
 beginning they can't read.
+
+**Chat mode (auto-reply):** say what you want in plain words — *reply once
+to the next message*, or *keep replying / converse / chat in that thread* —
+and Claude arms itself accordingly. Continuous chat only ever runs inside
+one thread (never "reply to everyone forever"), skips your own and
+`no_reply` messages, and stops when you interrupt, after 20 replies, or
+after 30 minutes with nothing arriving (say the numbers if you want other
+caps; `/fmsg:chat` takes them as arguments). Several messages sent in quick
+succession are gathered (a few seconds' settle window) and answered with one
+reply. Replies in chat mode are sent
+without a preview — your instruction to chat is the approval — but secrets
+are still redacted from every reply. Messages arrive over the WebSocket of
+your fmsg host via `fmsg watch` (needs fmsg-cli with the `watch` command,
+included in release builds); older CLIs fall back to polling. Each wait is
+one tool call of up to ~4 minutes; on a quiet thread Claude simply calls
+again, so a long chat costs a little context per idle wait.
 
 ## Configuration
 

@@ -4,9 +4,11 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -131,8 +133,14 @@ func NewRunnerFromEnv(version string) *Runner {
 			bin = "fmsg"
 		}
 	}
+	// Besides the fmsg settings, forward what the CLI needs to find its
+	// config (auth.json) and cache (the JWT exchanged for FMSG_API_KEY —
+	// without XDG_CACHE_HOME/LocalAppData the cache is silently disabled and
+	// every invocation re-exchanges the key).
 	var env []string
-	for _, k := range []string{"FMSG_API_URL", "FMSG_API_KEY", "HOME", "XDG_CONFIG_HOME", "PATH"} {
+	for _, k := range []string{"FMSG_API_URL", "FMSG_API_KEY", "FMSG_NO_TOKEN_CACHE",
+		"HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "PATH",
+		"USERPROFILE", "APPDATA", "LOCALAPPDATA", "SYSTEMROOT", "TEMP", "TMP"} {
 		if v := os.Getenv(k); v != "" {
 			env = append(env, k+"="+v)
 		}
@@ -347,4 +355,118 @@ func (r *Runner) Del(ctx context.Context, id int64) error {
 // GetData returns a message's raw body bytes (stdout mode is unaffected by --json).
 func (r *Runner) GetData(ctx context.Context, id int64) ([]byte, error) {
 	return r.run(ctx, "get-data", strconv.FormatInt(id, 10))
+}
+
+// WatchEvent is one NDJSON line from `fmsg --json watch`: the server's
+// {type, data} envelope, or the CLI's own {"type":"ready"} marker emitted
+// after every (re)connect — a signal that events may have been missed while
+// the socket was down, so callers should re-list to catch up.
+type WatchEvent struct {
+	Type string          `json:"type"`
+	Data json.RawMessage `json:"data"`
+}
+
+// EventReady is the CLI's connect marker; the rest are server event types.
+const (
+	EventReady           = "ready"
+	EventNewMsg          = "new_msg"
+	EventDelivered       = "delivered"
+	EventRecipientsAdded = "recipients_added"
+)
+
+// Item decodes the event's message payload (list-item shape, with id).
+func (e WatchEvent) Item() (*ListItem, error) {
+	var it ListItem
+	if err := json.Unmarshal(e.Data, &it); err != nil {
+		return nil, fmt.Errorf("decoding %s event: %w", e.Type, err)
+	}
+	return &it, nil
+}
+
+// ErrNoWatch reports a CLI build without the watch command; callers fall
+// back to polling `list`.
+var ErrNoWatch = errors.New("fmsg-cli lacks the watch command")
+
+// Watch starts `fmsg --json watch --events <events>` and streams its events
+// on the returned channel until ctx is cancelled (which kills the process)
+// or the CLI exits, after which the channel is closed. The subprocess is not
+// bound by Runner.Timeout. Returns ErrNoWatch when the CLI predates watch.
+func (r *Runner) Watch(ctx context.Context, events ...string) (<-chan WatchEvent, error) {
+	args := []string{"--json", "watch"}
+	if len(events) > 0 {
+		args = append(args, "--events", strings.Join(events, ","))
+	}
+	cmd := exec.CommandContext(ctx, r.Bin, args...)
+	cmd.Dir = r.Dir
+	cmd.Env = r.Env
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	// Don't let a grandchild holding stderr open stall Wait after the CLI
+	// itself has exited (or been killed on ctx cancel).
+	cmd.WaitDelay = time.Second
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, &Error{Code: "cli_error", Detail: err.Error()}
+	}
+
+	// Killing the process on ctx cancel is not enough if it left a child
+	// holding the pipe; closing our read end unblocks the scanner regardless.
+	stopClose := context.AfterFunc(ctx, func() { stdout.Close() })
+
+	out := make(chan WatchEvent, 16)
+	first := make(chan error, 1) // outcome of the first line: ready, or a startup failure
+	go func() {
+		defer close(out)
+		defer stopClose()
+		sc := bufio.NewScanner(stdout)
+		sc.Buffer(make([]byte, 0, 64<<10), 16<<20)
+		got := false
+		for sc.Scan() {
+			line := bytes.TrimSpace(sc.Bytes())
+			if len(line) == 0 {
+				continue
+			}
+			var ev WatchEvent
+			if err := json.Unmarshal(line, &ev); err != nil {
+				continue // tolerate stray output
+			}
+			if !got {
+				got = true
+				first <- nil
+			}
+			select {
+			case out <- ev:
+			case <-ctx.Done():
+				cmd.Wait()
+				return
+			}
+		}
+		werr := cmd.Wait()
+		if !got {
+			detail := strings.TrimSpace(stderr.String())
+			switch {
+			case strings.Contains(detail, `unknown command "watch"`):
+				first <- ErrNoWatch
+			case werr != nil && detail != "":
+				first <- classify(detail)
+			case werr != nil:
+				first <- &Error{Code: "cli_error", Detail: werr.Error()}
+			default:
+				first <- &Error{Code: "cli_error", Detail: "watch exited before connecting"}
+			}
+		}
+	}()
+
+	select {
+	case err := <-first:
+		if err != nil {
+			return nil, err
+		}
+		return out, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
