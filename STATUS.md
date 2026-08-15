@@ -21,9 +21,12 @@ Desktop).
 Upstream fmsg-cli changes this project produced: the global `--json` flag
 (also surfaces previously-dropped `to_delivery`/`read`/`time_read`/`batch_id`
 and the attach response) and `fmsg whoami`, **both merged to main**; and
-`fmsg watch` (WebSocket event stream, fmsg-cli PR #14 + fmsg-docker test 010
-PR #17, **open 2026-08-15**) — the MCP falls back to polling `list` until a
-CLI with `watch` is embedded.
+`fmsg watch` (WebSocket event stream, #14) and the on-disk cache of the JWT
+exchanged for `FMSG_API_KEY` (#15 — previously every CLI invocation
+re-exchanged the key, ~0.1–0.2 s each), **both merged 2026-08-16**; release
+builds embed them via `FMSG_CLI_REF=main`. The MCP falls back to polling
+`list` on CLIs without `watch`. fmsg-docker test 010 (PR #17) exercises
+`watch`.
 
 ## Decisions made (chronological, with rationale)
 
@@ -190,7 +193,9 @@ mcpb signing, which rewrites bundles).
 addressed: the `whoami` `expires_at` (~12h) read as an expiring credential —
 it is the session token exchanged from the API key, rotated automatically by
 fmsg-cli (by design, user-confirmed); `whoami` now says so in an
-`expires_note` and the README documents it. Release asset names
+`expires_note` and the README documents it. (Since fmsg-cli #15 the token is
+cached across invocations, so the expiry is stable between calls rather than
+fresh every time.) Release asset names
 (`fmsg-<platform>.mcpb` vs `fmsg-mcp_<os>_<arch>`) were ambiguous — the
 release workflow now appends a "Which asset do I want?" mapping to every
 release body (v0.4.2's edited by hand). Also reported, not actionable here:

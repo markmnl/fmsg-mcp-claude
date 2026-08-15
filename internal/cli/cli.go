@@ -133,8 +133,14 @@ func NewRunnerFromEnv(version string) *Runner {
 			bin = "fmsg"
 		}
 	}
+	// Besides the fmsg settings, forward what the CLI needs to find its
+	// config (auth.json) and cache (the JWT exchanged for FMSG_API_KEY —
+	// without XDG_CACHE_HOME/LocalAppData the cache is silently disabled and
+	// every invocation re-exchanges the key).
 	var env []string
-	for _, k := range []string{"FMSG_API_URL", "FMSG_API_KEY", "HOME", "XDG_CONFIG_HOME", "PATH"} {
+	for _, k := range []string{"FMSG_API_URL", "FMSG_API_KEY", "FMSG_NO_TOKEN_CACHE",
+		"HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "PATH",
+		"USERPROFILE", "APPDATA", "LOCALAPPDATA", "SYSTEMROOT", "TEMP", "TMP"} {
 		if v := os.Getenv(k); v != "" {
 			env = append(env, k+"="+v)
 		}
