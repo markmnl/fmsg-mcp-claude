@@ -15,6 +15,13 @@ const sampleJSONL = `{"type":"summary","summary":"Fixing auth","leafUuid":"x"}
 {"type":"assistant","sessionId":"abc-123","message":{"role":"assistant","model":"claude-fable-5","content":[{"type":"thinking","thinking":"private reasoning"},{"type":"text","text":"Looking at auth/manager.go"},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"go test ./..."}}]}}
 {"type":"user","sessionId":"abc-123","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":[{"type":"text","text":"FAIL: TestRefresh"}]}]}}
 {"type":"system","subtype":"other"}
+{"type":"user","sessionId":"abc-123","message":{"role":"user","content":"<task-notification>a subagent finished</task-notification>"}}
+{"type":"user","isSidechain":true,"sessionId":"abc-123","message":{"role":"user","content":"subagent prompt from a sidechain"}}
+{"type":"assistant","isSidechain":true,"sessionId":"abc-123","message":{"role":"assistant","content":[{"type":"text","text":"subagent answer from a sidechain"}]}}
+{"type":"system","subtype":"compact_boundary","sessionId":"abc-123","compactMetadata":{"trigger":"auto"}}
+{"type":"user","isCompactSummary":true,"isVisibleInTranscriptOnly":true,"sessionId":"abc-123","message":{"role":"user","content":"This session is being continued from a previous conversation"}}
+{"type":"user","sessionId":"other-999","message":{"role":"user","content":"a different session's prompt"}}
+{"type":"assistant","sessionId":"other-999","message":{"role":"assistant","content":[{"type":"text","text":"a different session's answer"}]}}
 not-json-line
 `
 
@@ -28,7 +35,7 @@ func writeSample(t *testing.T) string {
 }
 
 func TestParseJSONL(t *testing.T) {
-	pt, err := ParseJSONL(writeSample(t))
+	pt, err := ParseJSONL(writeSample(t), "abc-123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +53,12 @@ func TestParseJSONL(t *testing.T) {
 	}
 	for _, turn := range pt.Turns {
 		for _, b := range turn.Blocks {
-			for _, leak := range []string{"private reasoning", "local-command-caveat", "command-name", "system-reminder", "injected meta line", "go test ./...", "FAIL: TestRefresh"} {
+			for _, leak := range []string{"private reasoning", "local-command-caveat", "command-name", "system-reminder", "injected meta line", "go test ./...", "FAIL: TestRefresh",
+				// Content that belongs to some other conversation: subagent
+				// sidechains, the post-compaction recap of pre-boundary
+				// history, another session's lines in the same file, and
+				// harness task notifications delivered as user turns.
+				"sidechain", "continued from a previous conversation", "different session", "task-notification"} {
 				if strings.Contains(b.Text, leak) {
 					t.Fatalf("excluded content leaked: %q", b.Text)
 				}

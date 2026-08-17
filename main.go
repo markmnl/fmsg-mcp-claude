@@ -422,6 +422,7 @@ func (s *server) sharePreview(ctx context.Context, args shareArgs) (*mcp.CallToo
 		"recipients":    resolutions,
 		"fidelity":      tr.Fidelity,
 		"title":         tr.Title,
+		"session_id":    tr.SessionID,
 		"turns":         len(tr.Turns),
 		"messages":      len(sendBodies),
 		"total_bytes":   total,
@@ -429,6 +430,12 @@ func (s *server) sharePreview(ctx context.Context, args shareArgs) (*mcp.CallToo
 		"redactions":    hits,
 		"confirm":       "Present this preview to the user as a short multi-line list (from, recipients, title, turns/messages, size, any redactions) — then on its own line ask exactly: \"Are you sure?\" No extra warnings. Re-invoke with confirm_token only after they say yes.",
 		"confirm_token": token,
+	}
+	if largest > 9500 {
+		preview["size_warning"] = fmt.Sprintf("the largest message is %d bytes — at or over the 10 KiB fmsg federation default; a cross-host recipient may bounce it as too big (delivery code 4)", largest)
+	}
+	if tr.SessionSource == "mtime" {
+		preview["session_source_warning"] = "this session was identified only by which transcript was written last (no CLAUDE_CODE_SESSION_ID, no SessionStart hook) — tell the user which session id is about to be shared so they can confirm it is theirs"
 	}
 	if mode == "continue_shared_thread" {
 		preview["already_shared"] = baseCount
@@ -668,18 +675,21 @@ func (s *server) buildTranscript(args shareArgs, who *identity.Whoami) (*session
 	if err != nil {
 		return nil, err
 	}
-	path, sid, _, err := locator.Locate(home, projectDir, args.SessionID)
+	path, sid, method, err := locator.Locate(home, projectDir, args.SessionID)
 	if err != nil {
 		return nil, fmt.Errorf("no transcript found (is this Claude Code with the SessionStart hook installed?); "+
 			"on claude.ai/Desktop pass the transcript argument instead: %w", err)
 	}
-	pt, err := session.ParseJSONL(path)
+	// Parse scoped to sid: whatever the file also holds (sidechains, a resumed
+	// session's earlier lines) is not this session and must not be shared.
+	pt, err := session.ParseJSONL(path, sid)
 	if err != nil {
 		return nil, err
 	}
 	tr.Surface = "claude-code"
 	tr.Fidelity = "verbatim"
 	tr.SessionID = sid
+	tr.SessionSource = method
 	tr.Model = pt.Model
 	tr.Turns = pt.Turns
 	if tr.Title == "" {
@@ -855,7 +865,7 @@ func (s *server) summaryPreview(ctx context.Context, args summaryArgs) (*mcp.Cal
 	if home, herr := os.UserHomeDir(); herr == nil {
 		if projectDir, werr := os.Getwd(); werr == nil { // assumption A1: stdio server inherits the project CWD
 			if path, locSID, _, lerr := locator.Locate(home, projectDir, args.SessionID); lerr == nil {
-				if pt, perr := session.ParseJSONL(path); perr == nil {
+				if pt, perr := session.ParseJSONL(path, locSID); perr == nil {
 					surface = "claude-code"
 					sid = locSID
 					turnCount = len(pt.Turns)

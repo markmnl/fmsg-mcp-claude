@@ -17,6 +17,7 @@ func TestSlug(t *testing.T) {
 }
 
 func TestLocatePrefersPointer(t *testing.T) {
+	t.Setenv(SessionIDEnv, "") // a real session's env must not steer the test
 	home := t.TempDir()
 	project := "/home/alice/proj"
 
@@ -66,5 +67,66 @@ func TestLocatePrefersPointer(t *testing.T) {
 	}
 	if method != "mtime" || path != fallback {
 		t.Fatalf("fallback: got %s %s", path, method)
+	}
+}
+
+// The env var identifies the calling session exactly, so it must beat a hook
+// pointer another session on the same project has overwritten (the cmux case).
+func TestLocatePrefersEnvOverPointer(t *testing.T) {
+	home := t.TempDir()
+	project := "/home/alice/proj"
+	projDir := filepath.Join(home, ".claude", "projects", Slug(project))
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mine := filepath.Join(projDir, "mine.jsonl")
+	theirs := filepath.Join(projDir, "theirs.jsonl")
+	for _, p := range []string{mine, theirs} {
+		if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ptrDir := filepath.Dir(PointerPath(home, project))
+	if err := os.MkdirAll(ptrDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(Pointer{SessionID: "theirs", TranscriptPath: theirs, TS: float64(time.Now().Unix())})
+	if err := os.WriteFile(PointerPath(home, project), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv(SessionIDEnv, "mine")
+	path, sid, method, err := Locate(home, project, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != mine || sid != "mine" || method != "env" {
+		t.Fatalf("got %s %s %s, want the env-named session", path, sid, method)
+	}
+}
+
+// With no self-identification and two sessions writing concurrently, guessing
+// would share the wrong conversation — refuse instead.
+func TestLocateRefusesAmbiguousMtime(t *testing.T) {
+	t.Setenv(SessionIDEnv, "")
+	home := t.TempDir()
+	project := "/home/alice/proj"
+	projDir := filepath.Join(home, ".claude", "projects", Slug(project))
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	for i, name := range []string{"a.jsonl", "b.jsonl"} {
+		p := filepath.Join(projDir, name)
+		if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		mod := now.Add(-time.Duration(i) * 10 * time.Second)
+		if err := os.Chtimes(p, mod, mod); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, _, err := Locate(home, project, ""); err == nil {
+		t.Fatal("expected a refusal when two transcripts are concurrently active")
 	}
 }
