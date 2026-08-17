@@ -1,6 +1,6 @@
 # STATUS — where this project is and how it got here
 
-*Last updated: 2026-08-15. This is the orientation document: read it first.*
+*Last updated: 2026-08-17. This is the orientation document: read it first.*
 
 ## What exists and works
 
@@ -140,6 +140,37 @@ builds embed them via `FMSG_CLI_REF=main`. The MCP falls back to polling
     behind `--dangerously-load-development-channels`) to remove idle
     round-trips.
 
+13. **A share carries the calling session and nothing else (2026-08-17,
+    user-reported bug — "more than one session sent"; user running cmux):**
+    the reporter received messages from *different* sessions chained into one
+    thread. Root cause was session identification: the SessionStart hook's
+    pointer is per **project**, not per session, so with several Claude
+    sessions on one project directory (cmux, split panes, two terminals) each
+    start overwrites it and `Locate` could hand back another agent's
+    transcript — and the mtime fallback behind it guessed outright. Fixes:
+    - `locator.Locate` precedence is now caller `session_id` → **the
+      `CLAUDE_CODE_SESSION_ID` env var Claude Code exports into the stdio
+      server it spawns** (exact self-identification, no race, no hook) → hook
+      pointer → mtime. A session id that resolves to no transcript is an
+      error, never a fallback. The mtime fallback **refuses** when a second
+      transcript was written within 2 minutes of the newest (concurrent
+      sessions) and tells the caller to pass `session_id` or install the hook.
+    - `session.ParseJSONL` takes the session id and drops lines belonging to
+      anything else in the same file: other `sessionId`s (resume/fork),
+      `isSidechain` subagent conversations, and the post-compaction
+      `isCompactSummary` / `isVisibleInTranscriptOnly` recap turn — the last
+      of which was being shared as a 25 KB "prompt" whose body is a summary
+      of the conversation *before* the boundary. `<task-notification>` joins
+      `metaPrefixes` (they were arriving as 20 KB user prompts).
+    - The preview now reports `session_id`, warns (`session_source_warning`)
+      when the session was identified only by mtime, and warns
+      (`size_warning`) when the largest body is ≥9.5 KiB, matching
+      `share_summary`'s existing 10 KiB federation-limit warning.
+    Measured on a real two-day transcript: 62 → 53 exchanges, the 25 KB
+    compact recap and both 20 KB task notifications gone.
+    **Not addressed (open):** a session resumed across days is still one
+    `sessionId` and shares whole — see next steps.
+
 ## Live-testing findings (fmsg.live / fmsg.io, 2026-08-04)
 
 - **fmsg-webapi PUT is full-replacement while fmsg-cli's `update` sends only
@@ -278,7 +309,16 @@ merged and deployed to both live stacks.)*
    Apple Developer ID notarization of the embedded binary (Gatekeeper) and
    a Windows code-signing cert (SmartScreen). Escalation contact:
    mcp-review@anthropic.com.
-7. **Housekeeping**: ARCHITECTURE.md and TOOLS.md still describe v0.1 under
+7. **Scope a long-lived session (open, from decision 13):** Claude Code keeps
+   one `sessionId` across resumes, so a session worked on over days is one
+   transcript and `share_session` sends all of it (a real file here: 53
+   exchanges, 2026-08-04 → 08-05, spanning a compaction). Decision 13 stopped
+   *other* sessions leaking in, but not this. Candidates: split at
+   `system`/`compact_boundary` lines and long idle gaps and default to the
+   segment holding the latest turn, or a `scope`/`last_exchanges` argument
+   with the span reported in the preview. Needs a user decision on the
+   default before building.
+8. **Housekeeping**: ARCHITECTURE.md and TOOLS.md still describe v0.1 under
    supersession banners — rewrite to the shipped design; prune
    OPEN_QUESTIONS; keep watching assumption A3 (Claude Code JSONL schema
    drift — the parser is deliberately tolerant).

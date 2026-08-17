@@ -18,7 +18,15 @@ type jsonlLine struct {
 	CWD       string `json:"cwd"`
 	GitBranch string `json:"gitBranch"`
 	Summary   string `json:"summary"` // harness-generated session summary on type=="summary" lines
-	Message   *struct {
+	// isSidechain marks a subagent's own conversation, written into the same
+	// file as the session that spawned it; isCompactSummary marks the
+	// synthetic user turn Claude Code injects after a compaction, whose body
+	// is a recap of the conversation *before* the boundary. Neither is this
+	// session's conversation, so both are excluded.
+	IsSidechain               bool `json:"isSidechain"`
+	IsCompactSummary          bool `json:"isCompactSummary"`
+	IsVisibleInTranscriptOnly bool `json:"isVisibleInTranscriptOnly"`
+	Message                   *struct {
 		Role    string          `json:"role"`
 		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"` // string or []block
@@ -29,6 +37,7 @@ type jsonlLine struct {
 // conversation: slash-command records, local-command caveats and output, and
 // system reminders. Blocks starting with these are dropped from the envelope.
 var metaPrefixes = []string{
+	"<task-notification>",
 	"<local-command-caveat>",
 	"<local-command-stdout>",
 	"<command-name>",
@@ -70,7 +79,12 @@ type ParsedTranscript struct {
 // tool activity (tool_use/tool_result) are excluded by design (privacy +
 // tokens — shares carry only the conversation text); unknown line and block
 // types are skipped.
-func ParseJSONL(path string) (*ParsedTranscript, error) {
+//
+// sessionID, when non-empty, restricts the parse to that session's own lines:
+// a transcript file can also hold subagent sidechains and — after a resume or
+// fork — lines carrying an earlier session's id. A share must never carry a
+// conversation other than the one that asked for it.
+func ParseJSONL(path, sessionID string) (*ParsedTranscript, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("opening transcript: %w", err)
@@ -89,6 +103,12 @@ func ParseJSONL(path string) (*ParsedTranscript, error) {
 		if err := json.Unmarshal(raw, &line); err != nil {
 			continue // tolerate non-JSON or foreign lines
 		}
+		if sessionID != "" && line.SessionID != "" && line.SessionID != sessionID {
+			continue // another session's lines, sharing the same file
+		}
+		if line.IsSidechain {
+			continue // a subagent's conversation, not this session's
+		}
 		if line.SessionID != "" && pt.SessionID == "" {
 			pt.SessionID = line.SessionID
 		}
@@ -103,6 +123,9 @@ func ParseJSONL(path string) (*ParsedTranscript, error) {
 		}
 		if line.Message == nil || line.IsMeta || (line.Type != "user" && line.Type != "assistant") {
 			continue
+		}
+		if line.IsCompactSummary || line.IsVisibleInTranscriptOnly {
+			continue // harness recap of pre-compaction history, not a prompt
 		}
 		if line.Message.Model != "" {
 			pt.Model = line.Message.Model
