@@ -16,6 +16,13 @@ All backed by durable fmsg threads.
 <br/>
 <br/>
 
+> **Looking for general fmsg messaging from an agent?** This server is built around
+> sharing and resuming Claude sessions. For a general-purpose MCP server that gives
+> any MCP host (Claude Code, Claude Desktop, Cursor, VS Code, claude.ai connectors) an
+> fmsg address — inbox, threads, replies, reactions, attachments, wait-for-message,
+> stdio or remote HTTP — use [fmsg-mcp](https://github.com/markmnl/fmsg-mcp)
+> (`npx -y @markmnl/fmsg-mcp`). The two can be installed side by side.
+
 ## 1. Get an fmsg address + API key
 
 You send as an fmsg address, authenticated by an API key (`fmsgk_…`):
